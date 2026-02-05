@@ -35,8 +35,13 @@ float lastFrame = 0.0f;
 
 // lighting
 // --------
-// world-space position of the light source (used for diffuse/specular direction)
-glm::vec3 lightPos(1.2f, 1.0f, 2.0f);
+// Directional light behaves like sunlight: the light is treated as infinitely far away,
+// so every fragment receives light from the same direction (no light position / no attenuation).
+//
+// NOTE: In the previous chapters we used a point light with a world-space position (lightPos).
+// This demo uses a directional light instead, so lightPos is unused unless you re-enable the
+// optional "lamp" cube at the bottom of the render loop.
+// glm::vec3 lightPos(1.2f, 1.0f, 2.0f);
 
 int main()
 {
@@ -91,9 +96,10 @@ int main()
     // set up vertex data (and buffer(s)) and configure vertex attributes
     // ------------------------------------------------------------------
     // Each vertex contains:
-    //   - position (3 floats)
-    //   - normal   (3 floats)
-    // Total: 6 floats per vertex.
+    //   - position       (3 floats)
+    //   - normal         (3 floats)
+    //   - texture coords (2 floats)
+    // Total: 8 floats per vertex.
     //
     // We duplicate vertices per face (36 vertices total) so each face has a constant normal,
     // producing hard edges like a real cube (no smoothing across faces).
@@ -142,11 +148,25 @@ int main()
     -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f, 1.0f
 };
 
+    glm::vec3 cubePositions[] = {
+        glm::vec3( 0.0f,  0.0f,  0.0f),
+        glm::vec3( 2.0f,  5.0f, -15.0f),
+        glm::vec3(-1.5f, -2.2f, -2.5f),
+        glm::vec3(-3.8f, -2.0f, -12.3f),
+        glm::vec3( 2.4f, -0.4f, -3.5f),
+        glm::vec3(-1.7f,  3.0f, -7.5f),
+        glm::vec3( 1.3f, -2.0f, -2.5f),
+        glm::vec3( 1.5f,  2.0f, -2.5f),
+        glm::vec3( 1.5f,  0.2f, -1.5f),
+        glm::vec3(-1.3f,  1.0f, -1.5f)
+    };
+
     // first, configure the cube's VAO (and VBO)
     // -----------------------------------------
-    // The cube uses both attributes:
+    // The cube uses 3 vertex attributes:
     //   location 0 -> position
     //   location 1 -> normal
+    //   location 2 -> texture coords
     unsigned int VBO, cubeVAO;
     glGenVertexArrays(1, &cubeVAO);
     glGenBuffers(1, &VBO);
@@ -166,15 +186,15 @@ int main()
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(3*sizeof(float)));
     glEnableVertexAttribArray(1);
 
-    // normal attribute (vec3) at location = 1
-    // offset = 3 floats (skip position)
+    // texture coord attribute (vec2) at location = 2
+    // offset = 6 floats (skip position + normal)
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(6*sizeof(float)));
     glEnableVertexAttribArray(2);
 
     // second, configure the light's VAO
     // ---------------------------------
     // The lamp object reuses the same VBO, but its shader only needs position.
-    // We still set stride = 6 floats so the GPU steps correctly per vertex.
+    // We still set stride = 8 floats so the GPU steps correctly per vertex.
     unsigned int lightCubeVAO;
     glGenVertexArrays(1, &lightCubeVAO);
     glBindVertexArray(lightCubeVAO);
@@ -182,12 +202,13 @@ int main()
     // bind the same VBO so glVertexAttribPointer points into it
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
 
-    // position attribute only (ignore the normal data)
+    // position attribute only (ignore normal/texcoord data)
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
-    // load textures (we now use a utility function to keep the code more organized)
+    // load textures
     // -----------------------------------------------------------------------------
+    // The material uses a diffuse map (base color) and a specular map (controls shininess).
     unsigned int diffuseMap = loadTexture("../resources/container2.png");
     unsigned int specularMap = loadTexture("../resources/container2_specular.png");
 
@@ -211,21 +232,23 @@ int main()
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // 1) render the main cube with lighting
-        // ------------------------------------
-        // Be sure to activate the shader before setting uniforms.
+        // 1) render textured containers lit by a directional light
+        // --------------------------------------------------------
+        // Directional light acts like sunlight: only a direction matters (no position / no attenuation).
         lightingShader.use();
 
-        // material/object color (base color of the cube)
+        // material: tell the shader which texture units to sample from
         lightingShader.setInt("material.diffuse", 0);
         lightingShader.setInt("material.specular", 1);
         lightingShader.setFloat("material.shininess", 64.0f);
 
-        // light properties
-        lightingShader.setVec3("light.ambient", 0.2f, 0.2f, 0.2f);
-        lightingShader.setVec3("light.diffuse", 0.5f, 0.5f, 0.5f);
+        // directional light parameters
+        // NOTE: We specify light.direction as a global direction pointing FROM the light source (ray direction).
+        // The fragment shader will negate it to get a vector pointing TOWARDS the light source (for dot products).
+        lightingShader.setVec3("light.direction", -0.2f, -1.0f, -0.3f);
+        lightingShader.setVec3("light.ambient",  0.2f, 0.2f, 0.2f);
+        lightingShader.setVec3("light.diffuse",  0.5f, 0.5f, 0.5f);
         lightingShader.setVec3("light.specular", 1.0f, 1.0f, 1.0f);
-        lightingShader.setVec3("light.position", lightPos);
 
         // viewer position (world space), needed for specular highlights
         lightingShader.setVec3("viewPos", camera.Position);
@@ -239,36 +262,42 @@ int main()
         lightingShader.setMat4("projection", projection);
         lightingShader.setMat4("view", view);
 
-        // world transformation (model matrix)
-        // -----------------------------------
-        // The cube stays at the origin with identity model transform.
-        glm::mat4 model = glm::mat4(1.0f);
-        lightingShader.setMat4("model", model);
-
-        // render the cube
-        glBindVertexArray(cubeVAO);
-
+        // bind textures before drawing (matches the sampler units above)
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, diffuseMap);
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, specularMap);
 
-        glDrawArrays(GL_TRIANGLES, 0, 36);
+        // render 10 cubes at different positions/rotations
+        // (all cubes share the same directional light direction)
+        glBindVertexArray(cubeVAO);
+        for (unsigned int i = 0; i < 10; i++)
+        {
+            glm::mat4 model = glm::mat4(1.0f);
+            model = glm::translate(model, cubePositions[i]);
+            float angle = 20.0f * i;
+            model = glm::rotate(model, glm::radians(angle), glm::vec3(1.0f, 0.3f, 0.5f));
+            lightingShader.setMat4("model", model);
 
-        // 2) render the lamp object (visualizes the light source)
-        // -------------------------------------------------------
-        lightCubeShader.use();
-        lightCubeShader.setMat4("projection", projection);
-        lightCubeShader.setMat4("view", view);
+            glDrawArrays(GL_TRIANGLES, 0, 36);
+        }
 
-        // move the lamp to lightPos and scale it down so it looks like a small light cube
-        model = glm::mat4(1.0f);
-        model = glm::translate(model, lightPos);
-        model = glm::scale(model, glm::vec3(0.2f));
-        lightCubeShader.setMat4("model", model);
-
-        glBindVertexArray(lightCubeVAO);
-        glDrawArrays(GL_TRIANGLES, 0, 36);
+        // 2) (Optional) render a small "lamp" cube
+        // ---------------------------------------
+        // Directional lights have no position; this block is only useful for point light experiments.
+        // To use it, uncomment this block AND re-enable lightPos above.
+        //
+        // lightCubeShader.use();
+        // lightCubeShader.setMat4("projection", projection);
+        // lightCubeShader.setMat4("view", view);
+        //
+        // glm::mat4 model = glm::mat4(1.0f);
+        // model = glm::translate(model, lightPos);
+        // model = glm::scale(model, glm::vec3(0.2f));
+        // lightCubeShader.setMat4("model", model);
+        //
+        // glBindVertexArray(lightCubeVAO);
+        // glDrawArrays(GL_TRIANGLES, 0, 36);
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
@@ -347,10 +376,8 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
     camera.ProcessMouseScroll(static_cast<float>(yoffset));
 }
 
-// utility function for loading a 2D texture from file
-// ---------------------------------------------------
-// utility function for loading a 2D texture from file
-// ---------------------------------------------------
+// utility function for loading a 2D texture from file (stb_image)
+// ------------------------------------------------------------
 unsigned int loadTexture(char const * path)
 {
     unsigned int textureID;
