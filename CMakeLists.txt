@@ -23,6 +23,8 @@ add_executable(venture
         src/stb_image.cpp
         learnopengl/shader_m.h
         learnopengl/camera.h
+        include/world/VoxelWorld.h
+        src/world/VoxelWorld.cpp
 )
 
 target_link_libraries(venture
