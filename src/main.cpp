@@ -28,9 +28,9 @@ static const unsigned int SCR_HEIGHT = 720;
 
 // camera
 // World is centered around origin, put camera above and back a bit.
-static Camera camera(glm::vec3(0.0f, 40.0f, 140.0f),
+static Camera camera(glm::vec3(0.0f, 25.0f, 80.0f),
                      glm::vec3(0.0f, 1.0f, 0.0f),
-                     -90.0f, -15.0f);
+                     -90.0f, -20.0f);
 
 static float lastX = SCR_WIDTH / 2.0f;
 static float lastY = SCR_HEIGHT / 2.0f;
@@ -190,10 +190,7 @@ int main()
 
     // light positions
     glm::vec3 pointLightPositions[] = {
-        glm::vec3( 30.0f, 70.0f,  30.0f),
-        glm::vec3(-30.0f, 70.0f,  30.0f),
-        glm::vec3(-30.0f, 70.0f, -30.0f),
-        glm::vec3( 30.0f, 70.0f, -30.0f)
+        glm::vec3(0.0f, 25.0f, 50.0f)
     };
 
     // render loop
@@ -219,21 +216,21 @@ int main()
         lightingShader.setFloat("material.shininess", 64.0f);
 
         // directional light
-        lightingShader.setVec3("dirLight.direction", -0.2f, -1.0f, -0.3f);
+        lightingShader.setVec3("dirLight.direction", 0.0f, 0.0f, -1.0f);
         lightingShader.setVec3("dirLight.ambient",   0.05f, 0.05f, 0.05f);
         lightingShader.setVec3("dirLight.diffuse",   0.4f,  0.4f,  0.4f);
         lightingShader.setVec3("dirLight.specular",  0.5f,  0.5f,  0.5f);
 
         // point lights
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < 1; ++i) {
             std::string base = "pointLights[" + std::to_string(i) + "].";
             lightingShader.setVec3((base + "position").c_str(), pointLightPositions[i]);
             lightingShader.setVec3((base + "ambient").c_str(),  0.02f, 0.02f, 0.02f);
             lightingShader.setVec3((base + "diffuse").c_str(),  0.7f,  0.7f,  0.7f);
             lightingShader.setVec3((base + "specular").c_str(), 1.0f,  1.0f,  1.0f);
             lightingShader.setFloat((base + "constant").c_str(),  1.0f);
-            lightingShader.setFloat((base + "linear").c_str(),    0.09f);
-            lightingShader.setFloat((base + "quadratic").c_str(), 0.032f);
+            lightingShader.setFloat((base + "linear").c_str(),    0.0f);
+            lightingShader.setFloat((base + "quadratic").c_str(), 0.0f);
         }
 
         // flashlight from camera (if your colors.fs includes spotLight)
@@ -281,7 +278,7 @@ int main()
         lightCubeShader.setMat4("view", view);
 
         glBindVertexArray(lightCubeVAO);
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < 1; ++i) {
             glm::mat4 m = glm::mat4(1.0f);
             m = glm::translate(m, pointLightPositions[i]);
             m = glm::scale(m, glm::vec3(0.8f));

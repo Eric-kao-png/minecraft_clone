@@ -1,5 +1,5 @@
 #version 330 core
-#define NR_POINT_LIGHTS 4
+#define NR_POINT_LIGHTS 1
 struct Material {
     sampler2D diffuse;
     sampler2D specular;
