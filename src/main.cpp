@@ -14,6 +14,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <cmath>
 
 // callbacks / helpers
 static void framebuffer_size_callback(GLFWwindow* window, int width, int height);
@@ -188,10 +189,12 @@ int main()
 
     std::cout << "Solid blocks: " << blockPositions.size() << "\n";
 
-    // light positions
-    glm::vec3 pointLightPositions[] = {
-        glm::vec3(0.0f, 25.0f, 50.0f)
-    };
+    // Orbit settings (tweak these)
+    const glm::vec3 orbitCenter(0.0f, 0.0f, 0.0f); // world is centered around origin
+    const float orbitRadius = 120.0f;              // how far from center
+    const float orbitHeightBias = 20.0f;           // lift the whole orbit up/down
+    const float dayLengthSec = 60.0f;              // one full day-night cycle = 60 seconds
+    const float omega = 6.28318530718f / dayLengthSec; // 2*pi / period
 
     // render loop
     while (!glfwWindowShouldClose(window))
@@ -205,6 +208,28 @@ int main()
 
         glClearColor(0.07f, 0.07f, 0.10f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        float t = (float)glfwGetTime();
+        float angle = t * omega;
+
+        // Vertical orbit in the YZ plane (sun rises/sets)
+        glm::vec3 sunPos  = orbitCenter + glm::vec3(0.0f,
+                                                    std::sin(angle) * orbitRadius + orbitHeightBias,
+                                                    std::cos(angle) * orbitRadius);
+
+        glm::vec3 moonPos = orbitCenter + glm::vec3(0.0f,
+                                                    std::sin(angle + 3.14159265359f) * orbitRadius + orbitHeightBias,
+                                                    std::cos(angle + 3.14159265359f) * orbitRadius);
+
+        // yFactor: >0 means above horizon, <=0 means below horizon
+        float sunUp  = std::max(0.0f, std::sin(angle));
+        float moonUp = std::max(0.0f, std::sin(angle + 3.14159265359f));
+
+        // Optional: make transitions smoother (gamma-like curve)
+        sunUp  = sunUp  * sunUp;
+        moonUp = moonUp * moonUp;
+
+
 
         // -------------------
         // render voxel cubes
@@ -221,16 +246,43 @@ int main()
         lightingShader.setVec3("dirLight.diffuse",   0.4f,  0.4f,  0.4f);
         lightingShader.setVec3("dirLight.specular",  0.5f,  0.5f,  0.5f);
 
-        // point lights
-        for (int i = 0; i < 1; ++i) {
-            std::string base = "pointLights[" + std::to_string(i) + "].";
-            lightingShader.setVec3((base + "position").c_str(), pointLightPositions[i]);
-            lightingShader.setVec3((base + "ambient").c_str(),  0.02f, 0.02f, 0.02f);
-            lightingShader.setVec3((base + "diffuse").c_str(),  0.7f,  0.7f,  0.7f);
-            lightingShader.setVec3((base + "specular").c_str(), 1.0f,  1.0f,  1.0f);
-            lightingShader.setFloat((base + "constant").c_str(),  1.0f);
-            lightingShader.setFloat((base + "linear").c_str(),    0.0f);
-            lightingShader.setFloat((base + "quadratic").c_str(), 0.0f);
+        // Attenuation (make it decay slower so it can light a 100^3 world)
+        const float kC = 1.0f;
+        const float kL = 0.0f;   // slower decay
+        const float kQ = 0.0f;
+
+        // --- Sun (warm, bright) ---
+        {
+            std::string base = "pointLights[0].";
+            lightingShader.setVec3((base + "position").c_str(), sunPos);
+
+            glm::vec3 sunAmbient  = glm::vec3(0.02f, 0.015f, 0.010f) * sunUp;
+            glm::vec3 sunDiffuse  = glm::vec3(1.00f, 0.85f, 0.65f)  * (1.2f * sunUp);
+            glm::vec3 sunSpecular = glm::vec3(1.00f, 0.95f, 0.85f)  * (1.2f * sunUp);
+
+            lightingShader.setVec3((base + "ambient").c_str(),  sunAmbient);
+            lightingShader.setVec3((base + "diffuse").c_str(),  sunDiffuse);
+            lightingShader.setVec3((base + "specular").c_str(), sunSpecular);
+            lightingShader.setFloat((base + "constant").c_str(),  kC);
+            lightingShader.setFloat((base + "linear").c_str(),    kL);
+            lightingShader.setFloat((base + "quadratic").c_str(), kQ);
+        }
+
+        // --- Moon (cool, dim) ---
+        {
+            std::string base = "pointLights[1].";
+            lightingShader.setVec3((base + "position").c_str(), moonPos);
+
+            glm::vec3 moonAmbient  = glm::vec3(0.01f, 0.01f, 0.02f) * moonUp;
+            glm::vec3 moonDiffuse  = glm::vec3(0.35f, 0.45f, 0.90f) * (0.5f * moonUp);
+            glm::vec3 moonSpecular = glm::vec3(0.40f, 0.50f, 1.00f) * (0.6f * moonUp);
+
+            lightingShader.setVec3((base + "ambient").c_str(),  moonAmbient);
+            lightingShader.setVec3((base + "diffuse").c_str(),  moonDiffuse);
+            lightingShader.setVec3((base + "specular").c_str(), moonSpecular);
+            lightingShader.setFloat((base + "constant").c_str(),  kC);
+            lightingShader.setFloat((base + "linear").c_str(),    kL);
+            lightingShader.setFloat((base + "quadratic").c_str(), kQ);
         }
 
         // flashlight from camera (if your colors.fs includes spotLight)
@@ -278,9 +330,20 @@ int main()
         lightCubeShader.setMat4("view", view);
 
         glBindVertexArray(lightCubeVAO);
-        for (int i = 0; i < 1; ++i) {
+
+        // sun cube
+        {
             glm::mat4 m = glm::mat4(1.0f);
-            m = glm::translate(m, pointLightPositions[i]);
+            m = glm::translate(m, sunPos);
+            m = glm::scale(m, glm::vec3(1.0f));
+            lightCubeShader.setMat4("model", m);
+            glDrawArrays(GL_TRIANGLES, 0, 36);
+        }
+
+        // moon cube
+        {
+            glm::mat4 m = glm::mat4(1.0f);
+            m = glm::translate(m, moonPos);
             m = glm::scale(m, glm::vec3(0.8f));
             lightCubeShader.setMat4("model", m);
             glDrawArrays(GL_TRIANGLES, 0, 36);
