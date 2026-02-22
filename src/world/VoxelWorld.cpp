@@ -8,8 +8,6 @@
 
 namespace {
 
-// Classic Perlin noise with a permutation table (p_).
-// We keep this private to VoxelWorld.cpp.
 class PerlinNoise {
 public:
     explicit PerlinNoise(uint32_t seed) {
@@ -21,29 +19,26 @@ public:
 
         for (int i = 0; i < 256; ++i) {
             p_[i] = perm[i];
-            p_[i + 256] = perm[i]; // duplicate for easy wrap
+            p_[i + 256] = perm[i];
         }
     }
 
-    // 3D Perlin noise; for 2D terrain we call noise(x,y,0).
-    // Returns roughly in [-1, 1].
+    // 3D Perlin; for 2D we call noise(x,y,0)
+    // output roughly in [-1, 1]
     double noise(double x, double y, double z = 0.0) const {
-        // Determine which unit cube (integer lattice cell) the point is in
         int X = static_cast<int>(std::floor(x)) & 255;
         int Y = static_cast<int>(std::floor(y)) & 255;
         int Z = static_cast<int>(std::floor(z)) & 255;
 
-        // Local position inside that cube (0..1)
         double xf = x - std::floor(x);
         double yf = y - std::floor(y);
         double zf = z - std::floor(z);
 
-        // Smooth interpolation weights
         double u = fade(xf);
         double v = fade(yf);
         double w = fade(zf);
 
-        // Hash cube corners (produce indices used to fetch corner gradients)
+        // Hash cube corners
         int A  = p_[X] + Y;
         int AA = p_[A] + Z;
         int AB = p_[A + 1] + Z;
@@ -51,7 +46,6 @@ public:
         int BA = p_[B] + Z;
         int BB = p_[B + 1] + Z;
 
-        // Blend results from the 8 corners of the cube
         double x1 = lerp(grad(p_[AA],     xf,       yf,       zf),
                          grad(p_[BA],     xf - 1.0, yf,       zf), u);
         double x2 = lerp(grad(p_[AB],     xf,       yf - 1.0, zf),
@@ -67,8 +61,7 @@ public:
         return lerp(y1, y2, w);
     }
 
-    // fBm in 2D: sum multiple octaves of noise with increasing frequency and decreasing amplitude.
-    // Returns roughly in [-1, 1] after normalization.
+    // fBm 2D
     double fbm2D(double x, double y, int octaves, double lacunarity, double gain) const {
         double sum = 0.0;
         double amp = 1.0;
@@ -78,11 +71,9 @@ public:
         for (int i = 0; i < octaves; ++i) {
             sum += amp * noise(x * freq, y * freq, 0.0);
             ampSum += amp;
-
-            amp *= gain;        // smaller details have less influence
-            freq *= lacunarity; // smaller details have higher frequency
+            amp *= gain;
+            freq *= lacunarity;
         }
-
         if (ampSum > 0.0) sum /= ampSum;
         return sum;
     }
@@ -91,16 +82,12 @@ private:
     int p_[512]{};
 
     static double fade(double t) {
-        // 6t^5 - 15t^4 + 10t^3
-        return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+        return t * t * t * (t * (t * 6.0 - 15.0) + 10.0); // 6t^5 - 15t^4 + 10t^3
     }
-
     static double lerp(double a, double b, double t) {
         return a + t * (b - a);
     }
-
     static double grad(int hash, double x, double y, double z) {
-        // Classic gradient selection based on low bits of hash
         int h = hash & 15;
         double u = (h < 8) ? x : y;
         double v = (h < 4) ? y : ((h == 12 || h == 14) ? x : z);
@@ -161,14 +148,12 @@ void VoxelWorld::generateTerrainMidLevel(
 
     PerlinNoise pn(seed);
 
-    // Optional: a small translation based on seed so different seeds don't just change gradients
-    // but also shift sampling a bit. This does NOT create "center extension"; it's just a global offset.
+    // small global offset (does NOT mean "center-based terrain"; just shifts sampling a bit)
     double ox = static_cast<double>((seed * 37u) % 1000u) * 0.001;
     double oz = static_cast<double>((seed * 91u) % 1000u) * 0.001;
 
     for (int z = 0; z < SZ; ++z) {
         for (int x = 0; x < SX; ++x) {
-            // Whole-world terrain: every (x,z) has a height.
             double nx = (static_cast<double>(x) + ox) * noiseScale;
             double nz = (static_cast<double>(z) + oz) * noiseScale;
 
@@ -177,11 +162,10 @@ void VoxelWorld::generateTerrainMidLevel(
             int h = static_cast<int>(std::lround(static_cast<double>(baseY) + amplitude * n));
             h = std::clamp(h, 0, SY - 1);
 
-            // Fill all blocks below/at the surface => solid ground under the terrain
-            // for (int y = 0; y <= h; ++y) {
-            //     blocks_[x][y][z] = 1;
-            // }
-            blocks_[x][h][z] = 1;
+            // Column terrain: fill from bottom up to h
+            for (int y = 0; y <= h; ++y) {
+                blocks_[x][y][z] = 1;
+            }
         }
     }
 }
