@@ -327,8 +327,8 @@ int main()
             lightingShader.setVec3((base + "position").c_str(), moonPos);
 
             glm::vec3 amb = glm::vec3(0.005f, 0.008f, 0.015f) * moonUp;
-            glm::vec3 dif = glm::vec3(0.20f,  0.30f,  0.70f)  * (0.7f * moonUp);
-            glm::vec3 spe = glm::vec3(0.25f,  0.35f,  0.90f)  * (0.8f * moonUp);
+            glm::vec3 dif = glm::vec3(0.20f,  0.30f,  0.70f)  * (1.2f * moonUp);
+            glm::vec3 spe = glm::vec3(0.25f,  0.35f,  0.90f)  * (1.2f * moonUp);
 
             lightingShader.setVec3((base + "ambient").c_str(),  amb);
             lightingShader.setVec3((base + "diffuse").c_str(),  dif);
