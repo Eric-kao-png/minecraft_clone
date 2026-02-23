@@ -21,6 +21,7 @@
 static void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 static void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
+static void mouse_button_callback(GLFWwindow* window, int button, int action, int mods);
 static void processInput(GLFWwindow* window);
 static unsigned int loadTexture(const char* path);
 
@@ -32,7 +33,6 @@ static const unsigned int SCR_HEIGHT = 720;
 static Camera camera(glm::vec3(0.0f, 25.0f, 80.0f),
                      glm::vec3(0.0f, 1.0f, 0.0f),
                      -90.0f, -20.0f);
-
 static float lastX = SCR_WIDTH / 2.0f;
 static float lastY = SCR_HEIGHT / 2.0f;
 static bool firstMouse = true;
@@ -41,7 +41,24 @@ static bool firstMouse = true;
 static float deltaTime = 0.0f;
 static float lastFrame = 0.0f;
 
-// --------- Meshing (only faces next to air) ---------
+// -----------------------
+// World + mesh globals
+// -----------------------
+static VoxelWorld gWorld;
+static std::vector<float> gMesh;     // [x y z nx ny nz u v]...
+static GLsizei gMeshVertexCount = 0;
+static unsigned int gMeshVAO = 0;
+static unsigned int gMeshVBO = 0;
+static bool gMeshDirty = false;
+
+// World is centered around origin in render-space
+static constexpr float CX = (VoxelWorld::SX - 1) * 0.5f;
+static constexpr float CY = (VoxelWorld::SY - 1) * 0.5f;
+static constexpr float CZ = (VoxelWorld::SZ - 1) * 0.5f;
+
+// -----------------------
+// Meshing (only faces adjacent to air)
+// -----------------------
 struct FaceDef {
     int dx, dy, dz;        // neighbor direction
     float nx, ny, nz;      // face normal
@@ -100,18 +117,14 @@ static std::vector<float> buildVisibleFaceMesh(const VoxelWorld& world) {
     std::vector<float> mesh;
     mesh.reserve(2'000'000);
 
-    const float cx = (VoxelWorld::SX - 1) * 0.5f;
-    const float cy = (VoxelWorld::SY - 1) * 0.5f;
-    const float cz = (VoxelWorld::SZ - 1) * 0.5f;
-
     for (int z = 0; z < VoxelWorld::SZ; ++z) {
         for (int y = 0; y < VoxelWorld::SY; ++y) {
             for (int x = 0; x < VoxelWorld::SX; ++x) {
                 if (!world.hasBlock(x, y, z)) continue;
 
-                float px = (float)x - cx;
-                float py = (float)y - cy;
-                float pz = (float)z - cz;
+                float px = (float)x - CX;
+                float py = (float)y - CY;
+                float pz = (float)z - CZ;
 
                 for (const auto& f : faces) {
                     int nxCell = x + f.dx;
@@ -120,9 +133,6 @@ static std::vector<float> buildVisibleFaceMesh(const VoxelWorld& world) {
 
                     if (!isAir(world, nxCell, nyCell, nzCell))
                         continue;
-
-                    // optional: don't render bottom faces at world bottom
-                    // if (f.dy == -1 && y == 0) continue;
 
                     for (int i = 0; i < 6; ++i) {
                         float ox = f.v[i][0], oy = f.v[i][1], oz = f.v[i][2];
@@ -140,9 +150,115 @@ static std::vector<float> buildVisibleFaceMesh(const VoxelWorld& world) {
     return mesh;
 }
 
+static void uploadMeshToGPU() {
+    gMeshVertexCount = (GLsizei)(gMesh.size() / 8);
+
+    glBindBuffer(GL_ARRAY_BUFFER, gMeshVBO);
+    glBufferData(GL_ARRAY_BUFFER,
+                 gMesh.size() * sizeof(float),
+                 gMesh.empty() ? nullptr : gMesh.data(),
+                 GL_DYNAMIC_DRAW);
+}
+
+static void rebuildWorldMesh() {
+    gMesh = buildVisibleFaceMesh(gWorld);
+    uploadMeshToGPU();
+    std::cout << "Rebuilt mesh. Vertices: " << gMeshVertexCount << "\n";
+}
+
+// -----------------------
+// Simple step raycast
+// -----------------------
+struct RaycastHit {
+    bool hit = false;
+    glm::ivec3 block{0};     // voxel cell index
+    glm::ivec3 normal{0};    // face normal from hit block toward air
+    float t = 0.0f;
+};
+
+static glm::ivec3 worldPosToCell(const glm::vec3& p) {
+    // cell = floor(p + C + 0.5)
+    return glm::ivec3(
+        (int)std::floor(p.x + CX + 0.5f),
+        (int)std::floor(p.y + CY + 0.5f),
+        (int)std::floor(p.z + CZ + 0.5f)
+    );
+}
+
+static glm::ivec3 approxHitNormalFromDir(const glm::vec3& dir) {
+    glm::vec3 a = glm::abs(dir);
+    if (a.x >= a.y && a.x >= a.z) return glm::ivec3(dir.x > 0 ? -1 : 1, 0, 0);
+    if (a.y >= a.x && a.y >= a.z) return glm::ivec3(0, dir.y > 0 ? -1 : 1, 0);
+    return glm::ivec3(0, 0, dir.z > 0 ? -1 : 1);
+}
+
+static bool raycastStep(const VoxelWorld& world,
+                        const glm::vec3& origin,
+                        const glm::vec3& dir,
+                        float maxDist,
+                        float step,
+                        RaycastHit& out) {
+    glm::vec3 d = glm::normalize(dir);
+
+    glm::ivec3 lastCell = worldPosToCell(origin);
+    glm::ivec3 prevCell = lastCell;
+    bool hasPrev = false;
+
+    for (float t = 0.0f; t <= maxDist; t += step) {
+        glm::vec3 p = origin + d * t;
+        glm::ivec3 cell = worldPosToCell(p);
+
+        if (cell != lastCell) {
+            prevCell = lastCell;
+            hasPrev = true;
+            lastCell = cell;
+        }
+
+        if (!world.inBounds(cell.x, cell.y, cell.z))
+            continue;
+
+        if (world.hasBlock(cell.x, cell.y, cell.z)) {
+            out.hit = true;
+            out.block = cell;
+            out.t = t;
+            out.normal = hasPrev ? (prevCell - cell) : approxHitNormalFromDir(d);
+            if (out.normal == glm::ivec3(0)) out.normal = approxHitNormalFromDir(d);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool editBlock(bool place) {
+    const float maxReach = 6.0f;
+    const float step = 0.10f;
+
+    RaycastHit hit;
+    if (!raycastStep(gWorld, camera.Position, camera.Front, maxReach, step, hit))
+        return false;
+
+    if (!place) {
+        gWorld.setBlock(hit.block.x, hit.block.y, hit.block.z, false);
+        return true;
+    }
+
+    glm::ivec3 placeCell = hit.block + hit.normal;
+    if (!gWorld.inBounds(placeCell.x, placeCell.y, placeCell.z))
+        return false;
+    if (gWorld.hasBlock(placeCell.x, placeCell.y, placeCell.z))
+        return false;
+
+    glm::ivec3 camCell = worldPosToCell(camera.Position);
+    if (placeCell == camCell)
+        return false;
+
+    gWorld.setBlock(placeCell.x, placeCell.y, placeCell.z, true);
+    return true;
+}
+
 int main()
 {
-    // glfw init
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -151,7 +267,7 @@ int main()
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
 
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Voxel World (visible faces mesh)", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Voxel World (break/place)", NULL, NULL);
     if (window == NULL) {
         std::cout << "Failed to create GLFW window\n";
         glfwTerminate();
@@ -162,6 +278,8 @@ int main()
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetCursorPosCallback(window, mouse_callback);
     glfwSetScrollCallback(window, scroll_callback);
+    glfwSetMouseButtonCallback(window, mouse_button_callback);
+
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
@@ -174,35 +292,23 @@ int main()
     Shader lightingShader("../shaders/colors.vs", "../shaders/colors.fs");
     Shader lightCubeShader("../shaders/light_cube.vs", "../shaders/light_cube.fs");
 
-    // Load textures
     unsigned int diffuseMap  = loadTexture("../resources/container2.png");
     unsigned int specularMap = loadTexture("../resources/container2_specular.png");
 
-    // ---------------------------
-    // Build voxel world (COLUMN terrain)
-    // ---------------------------
-    VoxelWorld world;
-    world.generateTerrainMidLevel(
-        2026,   // seed
-        50,     // baseY
-        0.08,   // noiseScale
-        20.0,   // amplitude
-        5, 2.0, 0.5
-    );
+    // World
+    gWorld.generateTerrainMidLevel(2026, 50, 0.08, 20.0, 5, 2.0, 0.5);
 
-    // Build optimized mesh (only faces adjacent to air)
-    std::vector<float> mesh = buildVisibleFaceMesh(world);
-    const GLsizei meshVertexCount = (GLsizei)(mesh.size() / 8);
-    std::cout << "Mesh vertices: " << meshVertexCount << "\n";
+    // Initial mesh
+    gMesh = buildVisibleFaceMesh(gWorld);
 
-    // Upload world mesh to GPU
-    unsigned int meshVAO, meshVBO;
-    glGenVertexArrays(1, &meshVAO);
-    glGenBuffers(1, &meshVBO);
+    glGenVertexArrays(1, &gMeshVAO);
+    glGenBuffers(1, &gMeshVBO);
 
-    glBindVertexArray(meshVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, meshVBO);
-    glBufferData(GL_ARRAY_BUFFER, mesh.size() * sizeof(float), mesh.data(), GL_STATIC_DRAW);
+    glBindVertexArray(gMeshVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, gMeshVBO);
+
+    // Upload initial mesh
+    uploadMeshToGPU();
 
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
@@ -211,11 +317,8 @@ int main()
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
     glEnableVertexAttribArray(2);
 
-    glBindVertexArray(0);
-
-    // A cube VBO just for drawing sun/moon "lamp cubes" (position only used)
+    // Light cubes VAO/VBO (positions only)
     float lampCubeVertices[] = {
-        // positions only (we can still keep stride=3 for lamp cube shader)
         -0.5f,-0.5f,-0.5f,  0.5f,-0.5f,-0.5f,  0.5f, 0.5f,-0.5f,
          0.5f, 0.5f,-0.5f, -0.5f, 0.5f,-0.5f, -0.5f,-0.5f,-0.5f,
 
@@ -238,14 +341,14 @@ int main()
     unsigned int lightCubeVAO, lightCubeVBO;
     glGenVertexArrays(1, &lightCubeVAO);
     glGenBuffers(1, &lightCubeVBO);
+
     glBindVertexArray(lightCubeVAO);
     glBindBuffer(GL_ARRAY_BUFFER, lightCubeVBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(lampCubeVertices), lampCubeVertices, GL_STATIC_DRAW);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
-    glBindVertexArray(0);
 
-    // Orbit settings
+    // Orbit
     const glm::vec3 orbitCenter(0.0f, 0.0f, 0.0f);
     const float orbitRadius = 120.0f;
     const float orbitHeightBias = 20.0f;
@@ -259,6 +362,11 @@ int main()
         lastFrame = currentFrame;
 
         processInput(window);
+
+        if (gMeshDirty) {
+            rebuildWorldMesh();
+            gMeshDirty = false;
+        }
 
         glClearColor(0.07f, 0.07f, 0.10f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -276,30 +384,25 @@ int main()
         float sunUp  = std::max(0.0f, std::sin(angle));
         float moonUp = std::max(0.0f, std::sin(angle + 3.14159265359f));
         sunUp  = sunUp  * sunUp;
-        moonUp = moonUp * moonUp;
+        moonUp = std::sqrt(moonUp); // brighten moon transitions
 
-        // matrices
         glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom),
                                                 (float)SCR_WIDTH / (float)SCR_HEIGHT,
                                                 0.1f, 500.0f);
         glm::mat4 view = camera.GetViewMatrix();
 
-        // -------------------
-        // render world mesh
-        // -------------------
+        // World mesh
         lightingShader.use();
 
         lightingShader.setInt("material.diffuse", 0);
         lightingShader.setInt("material.specular", 1);
         lightingShader.setFloat("material.shininess", 64.0f);
 
-        // (optional) keep a very weak directional light as base fill
         lightingShader.setVec3("dirLight.direction", 0.0f, -1.0f, 0.0f);
         lightingShader.setVec3("dirLight.ambient",   0.01f, 0.01f, 0.01f);
         lightingShader.setVec3("dirLight.diffuse",   0.00f, 0.00f, 0.00f);
         lightingShader.setVec3("dirLight.specular",  0.00f, 0.00f, 0.00f);
 
-        // Attenuation (slow decay for "sun/moon-like" point lights)
         const float kC = 1.0f;
         const float kL = 0.0020f;
         const float kQ = 0.00002f;
@@ -326,9 +429,9 @@ int main()
             std::string base = "pointLights[1].";
             lightingShader.setVec3((base + "position").c_str(), moonPos);
 
-            glm::vec3 amb = glm::vec3(0.005f, 0.008f, 0.015f) * moonUp;
-            glm::vec3 dif = glm::vec3(0.20f,  0.30f,  0.70f)  * (1.2f * moonUp);
-            glm::vec3 spe = glm::vec3(0.25f,  0.35f,  0.90f)  * (1.2f * moonUp);
+            glm::vec3 amb = glm::vec3(0.008f, 0.010f, 0.020f) * moonUp;
+            glm::vec3 dif = glm::vec3(0.25f,  0.35f,  0.90f)  * (1.6f * moonUp);
+            glm::vec3 spe = glm::vec3(0.30f,  0.40f,  1.00f)  * (1.4f * moonUp);
 
             lightingShader.setVec3((base + "ambient").c_str(),  amb);
             lightingShader.setVec3((base + "diffuse").c_str(),  dif);
@@ -349,7 +452,7 @@ int main()
             lightingShader.setFloat((base + "quadratic").c_str(), 0.0f);
         }
 
-        // flashlight from camera (keep if your colors.fs includes spotLight)
+        // flashlight (kept if your colors.fs has spotLight)
         lightingShader.setVec3("spotLight.position",  camera.Position);
         lightingShader.setVec3("spotLight.direction", camera.Front);
         lightingShader.setVec3("spotLight.ambient",   0.0f, 0.0f, 0.0f);
@@ -364,36 +467,31 @@ int main()
         lightingShader.setVec3("viewPos", camera.Position);
         lightingShader.setMat4("projection", projection);
         lightingShader.setMat4("view", view);
-
-        // world mesh already in world coordinates => identity model
-        glm::mat4 model = glm::mat4(1.0f);
-        lightingShader.setMat4("model", model);
+        lightingShader.setMat4("model", glm::mat4(1.0f));
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, diffuseMap);
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, specularMap);
 
-        glBindVertexArray(meshVAO);
-        glDrawArrays(GL_TRIANGLES, 0, meshVertexCount);
+        glBindVertexArray(gMeshVAO);
+        glDrawArrays(GL_TRIANGLES, 0, gMeshVertexCount);
 
-        // -------------------
-        // render light cubes (sun & moon)
-        // -------------------
+        // Light cubes
         lightCubeShader.use();
         lightCubeShader.setMat4("projection", projection);
         lightCubeShader.setMat4("view", view);
 
         glBindVertexArray(lightCubeVAO);
 
-        {
+        {   // sun cube
             glm::mat4 m = glm::mat4(1.0f);
             m = glm::translate(m, sunPos);
             m = glm::scale(m, glm::vec3(1.2f));
             lightCubeShader.setMat4("model", m);
             glDrawArrays(GL_TRIANGLES, 0, 36);
         }
-        {
+        {   // moon cube
             glm::mat4 m = glm::mat4(1.0f);
             m = glm::translate(m, moonPos);
             m = glm::scale(m, glm::vec3(1.0f));
@@ -405,8 +503,8 @@ int main()
         glfwPollEvents();
     }
 
-    glDeleteVertexArrays(1, &meshVAO);
-    glDeleteBuffers(1, &meshVBO);
+    glDeleteVertexArrays(1, &gMeshVAO);
+    glDeleteBuffers(1, &gMeshVBO);
     glDeleteVertexArrays(1, &lightCubeVAO);
     glDeleteBuffers(1, &lightCubeVBO);
 
@@ -461,6 +559,18 @@ static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 {
     (void)xoffset;
     camera.ProcessMouseScroll((float)yoffset);
+}
+
+static void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
+{
+    (void)window; (void)mods;
+    if (action != GLFW_PRESS) return;
+
+    if (button == GLFW_MOUSE_BUTTON_LEFT) {
+        if (editBlock(false)) gMeshDirty = true;
+    } else if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+        if (editBlock(true)) gMeshDirty = true;
+    }
 }
 
 // ------------------------

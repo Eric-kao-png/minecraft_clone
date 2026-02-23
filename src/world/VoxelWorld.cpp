@@ -23,7 +23,7 @@ public:
         }
     }
 
-    // 3D Perlin; for 2D we call noise(x,y,0)
+    // 3D Perlin noise; for 2D we call noise(x,y,0)
     // output roughly in [-1, 1]
     double noise(double x, double y, double z = 0.0) const {
         int X = static_cast<int>(std::floor(x)) & 255;
@@ -61,7 +61,7 @@ public:
         return lerp(y1, y2, w);
     }
 
-    // fBm 2D
+    // fBm in 2D
     double fbm2D(double x, double y, int octaves, double lacunarity, double gain) const {
         double sum = 0.0;
         double amp = 1.0;
@@ -74,6 +74,7 @@ public:
             amp *= gain;
             freq *= lacunarity;
         }
+
         if (ampSum > 0.0) sum /= ampSum;
         return sum;
     }
@@ -82,7 +83,7 @@ private:
     int p_[512]{};
 
     static double fade(double t) {
-        return t * t * t * (t * (t * 6.0 - 15.0) + 10.0); // 6t^5 - 15t^4 + 10t^3
+        return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
     }
     static double lerp(double a, double b, double t) {
         return a + t * (b - a);
@@ -97,9 +98,7 @@ private:
 
 } // namespace
 
-VoxelWorld::VoxelWorld() {
-    clear();
-}
+VoxelWorld::VoxelWorld() { clear(); }
 
 bool VoxelWorld::inBounds(int x, int y, int z) const {
     return (0 <= x && x < SX) && (0 <= y && y < SY) && (0 <= z && z < SZ);
@@ -148,7 +147,6 @@ void VoxelWorld::generateTerrainMidLevel(
 
     PerlinNoise pn(seed);
 
-    // small global offset (does NOT mean "center-based terrain"; just shifts sampling a bit)
     double ox = static_cast<double>((seed * 37u) % 1000u) * 0.001;
     double oz = static_cast<double>((seed * 91u) % 1000u) * 0.001;
 
@@ -157,12 +155,11 @@ void VoxelWorld::generateTerrainMidLevel(
             double nx = (static_cast<double>(x) + ox) * noiseScale;
             double nz = (static_cast<double>(z) + oz) * noiseScale;
 
-            double n = pn.fbm2D(nx, nz, octaves, lacunarity, gain); // ~[-1,1]
+            double n = pn.fbm2D(nx, nz, octaves, lacunarity, gain);
 
             int h = static_cast<int>(std::lround(static_cast<double>(baseY) + amplitude * n));
             h = std::clamp(h, 0, SY - 1);
 
-            // Column terrain: fill from bottom up to h
             for (int y = 0; y <= h; ++y) {
                 blocks_[x][y][z] = 1;
             }
