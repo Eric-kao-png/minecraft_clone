@@ -30,7 +30,7 @@ static const unsigned int SCR_WIDTH  = 1280;
 static const unsigned int SCR_HEIGHT = 720;
 
 // camera
-static Camera camera(glm::vec3(0.0f, 25.0f, 80.0f),
+static Camera camera(glm::vec3(0.0f, 5.0f, 0.0f),
                      glm::vec3(0.0f, 1.0f, 0.0f),
                      -90.0f, -20.0f);
 static float lastX = SCR_WIDTH / 2.0f;
