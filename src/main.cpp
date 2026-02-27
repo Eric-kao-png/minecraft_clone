@@ -11,6 +11,8 @@
 
 #include "world/VoxelWorld.h"
 
+#include "physics/Player.h"
+
 #include <iostream>
 #include <vector>
 #include <string>
@@ -30,7 +32,7 @@ static const unsigned int SCR_WIDTH  = 1280;
 static const unsigned int SCR_HEIGHT = 720;
 
 // camera
-static Camera camera(glm::vec3(0.0f, 5.0f, 0.0f),
+static Camera camera(glm::vec3(0.0f, 25.0f, 0.0f),
                      glm::vec3(0.0f, 1.0f, 0.0f),
                      -90.0f, -20.0f);
 static float lastX = SCR_WIDTH / 2.0f;
@@ -40,6 +42,24 @@ static bool firstMouse = true;
 // timing
 static float deltaTime = 0.0f;
 static float lastFrame = 0.0f;
+
+// -----------------------
+// Player physics (AABB + gravity + voxel collisions)
+// -----------------------
+static Player gPlayer;
+
+struct InputState {
+    bool forward = false;
+    bool backward = false;
+    bool left = false;
+    bool right = false;
+    bool sprint = false;
+    bool jumpPressed = false; // edge-triggered
+};
+
+static InputState gInput;
+static bool gSpaceWasDown = false;
+
 
 // -----------------------
 // World + mesh globals
@@ -249,8 +269,10 @@ static bool editBlock(bool place) {
     if (gWorld.hasBlock(placeCell.x, placeCell.y, placeCell.z))
         return false;
 
-    glm::ivec3 camCell = worldPosToCell(camera.Position);
-    if (placeCell == camCell)
+    // Don't allow placing a block inside the player
+    voxel_physics::AABB playerBox = gPlayer.aabb();
+    voxel_physics::AABB blockBox  = voxel_physics::blockAABB(placeCell.x, placeCell.y, placeCell.z);
+    if (voxel_physics::overlap(playerBox, blockBox))
         return false;
 
     gWorld.setBlock(placeCell.x, placeCell.y, placeCell.z, true);
@@ -297,6 +319,29 @@ int main()
 
     // World
     gWorld.generateTerrainMidLevel(2026, 50, 0.08, 20.0, 5, 2.0, 0.5);
+
+    // Spawn player at the center, standing on terrain
+    {
+        const int sx = VoxelWorld::SX / 2;
+        const int sz = VoxelWorld::SZ / 2;
+
+        int topY = -1;
+        for (int y = VoxelWorld::SY - 1; y >= 0; --y) {
+            if (gWorld.hasBlock(sx, y, sz)) {
+                topY = y;
+                break;
+            }
+        }
+
+        float groundTop = (topY >= 0) ? ((float)topY - CY + 0.5f) : 0.0f;
+        gPlayer.position = glm::vec3((float)sx - CX,
+                                    groundTop + gPlayer.halfSize.y + voxel_physics::EPS,
+                                    (float)sz - CZ);
+        gPlayer.velocity = glm::vec3(0.0f);
+        gPlayer.onGround = true;
+
+        camera.Position = gPlayer.eyePosition();
+    }
 
     // Initial mesh
     gMesh = buildVisibleFaceMesh(gWorld);
@@ -362,6 +407,34 @@ int main()
         lastFrame = currentFrame;
 
         processInput(window);
+
+        // --- Player control + physics ---
+        {
+            glm::vec3 forward(camera.Front.x, 0.0f, camera.Front.z);
+            float f2 = glm::dot(forward, forward);
+            if (f2 < 1e-8f) forward = glm::vec3(0.0f, 0.0f, -1.0f);
+            else forward /= std::sqrt(f2);
+
+            glm::vec3 right(camera.Right.x, 0.0f, camera.Right.z);
+            float r2 = glm::dot(right, right);
+            if (r2 < 1e-8f) right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
+            else right /= std::sqrt(r2);
+
+            glm::vec3 wish(0.0f);
+            if (gInput.forward)  wish += forward;
+            if (gInput.backward) wish -= forward;
+            if (gInput.right)    wish += right;
+            if (gInput.left)     wish -= right;
+
+            float w2 = glm::dot(wish, wish);
+            if (w2 > 1e-8f) wish /= std::sqrt(w2);
+
+            gPlayer.applyControl(wish, gInput.jumpPressed, gInput.sprint, deltaTime);
+            gPlayer.step(gWorld, deltaTime);
+
+            // Camera follows the player
+            camera.Position = gPlayer.eyePosition();
+        }
 
         if (gMeshDirty) {
             rebuildWorldMesh();
@@ -520,14 +593,17 @@ static void processInput(GLFWwindow* window)
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
 
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-        camera.ProcessKeyboard(FORWARD, deltaTime);
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-        camera.ProcessKeyboard(BACKWARD, deltaTime);
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-        camera.ProcessKeyboard(LEFT, deltaTime);
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-        camera.ProcessKeyboard(RIGHT, deltaTime);
+    gInput.forward  = glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS;
+    gInput.backward = glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS;
+    gInput.left     = glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS;
+    gInput.right    = glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
+
+    gInput.sprint = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
+
+    // edge-trigger jump
+    bool spaceDown = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
+    gInput.jumpPressed = spaceDown && !gSpaceWasDown;
+    gSpaceWasDown = spaceDown;
 }
 
 static void framebuffer_size_callback(GLFWwindow* window, int width, int height)
