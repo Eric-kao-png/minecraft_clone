@@ -42,6 +42,7 @@ public:
         steps = std::max(1, steps);
         float subDt = dt / (float)steps;
 
+        // Will be set true again only if we confirm ground contact.
         onGround = false;
 
         for (int i = 0; i < steps; ++i) {
@@ -72,6 +73,7 @@ private:
     void clampToWorldBounds(int axis) {
         using namespace voxel_physics;
         float lo = 0.0f, hi = 0.0f;
+
         if (axis == 0) {
             lo = WORLD_MIN_X + halfSize.x;
             hi = WORLD_MAX_X - halfSize.x;
@@ -84,6 +86,7 @@ private:
         }
 
         float& p = position[axis];
+
         if (p < lo) {
             p = lo;
             velocity[axis] = 0.0f;
@@ -105,16 +108,19 @@ private:
     }
 
     void moveAxis(const VoxelWorld& world, int axis, float delta) {
+        using namespace voxel_physics;
+
         if (delta == 0.0f) {
+            // No motion on this axis; still keep body inside bounds.
             clampToWorldBounds(axis);
             return;
         }
 
+        // Try move first
         position[axis] += delta;
 
         // Broadphase: compute which voxel cells the AABB overlaps
-        using namespace voxel_physics;
-        voxel_physics::AABB box = aabb();
+        AABB box = aabb();
 
         int x0 = minCellFromWorld(box.min.x, CX);
         int x1 = maxCellFromWorld(box.max.x, CX);
@@ -139,30 +145,21 @@ private:
                     if (!isSolidCell(world, x, y, z))
                         continue;
 
-                    voxel_physics::AABB blk = blockAABB(x, y, z);
+                    AABB blk = blockAABB(x, y, z);
                     if (!overlap(box, blk))
                         continue;
 
                     collided = true;
 
                     if (axis == 0) {
-                        if (delta > 0.0f) {
-                            newPos = std::min(newPos, blk.min.x - halfSize.x - EPS);
-                        } else {
-                            newPos = std::max(newPos, blk.max.x + halfSize.x + EPS);
-                        }
+                        if (delta > 0.0f) newPos = std::min(newPos, blk.min.x - halfSize.x - EPS);
+                        else              newPos = std::max(newPos, blk.max.x + halfSize.x + EPS);
                     } else if (axis == 1) {
-                        if (delta > 0.0f) {
-                            newPos = std::min(newPos, blk.min.y - halfSize.y - EPS);
-                        } else {
-                            newPos = std::max(newPos, blk.max.y + halfSize.y + EPS);
-                        }
+                        if (delta > 0.0f) newPos = std::min(newPos, blk.min.y - halfSize.y - EPS);
+                        else              newPos = std::max(newPos, blk.max.y + halfSize.y + EPS);
                     } else {
-                        if (delta > 0.0f) {
-                            newPos = std::min(newPos, blk.min.z - halfSize.z - EPS);
-                        } else {
-                            newPos = std::max(newPos, blk.max.z + halfSize.z + EPS);
-                        }
+                        if (delta > 0.0f) newPos = std::min(newPos, blk.min.z - halfSize.z - EPS);
+                        else              newPos = std::max(newPos, blk.max.z + halfSize.z + EPS);
                     }
                 }
             }
@@ -184,7 +181,55 @@ private:
             }
         }
 
-        // Keep player inside the finite world volume.
+        // ---- Ground probe / "skin" fix ----
+        // If we are moving downward and didn't actually penetrate (no overlap),
+        // we may still be extremely close to the ground due to EPS / float precision.
+        // Probe slightly below the feet, and if we find solid ground, snap to it
+        // and keep onGround=true. This prevents onGround flicker -> missed jumps.
+        if (!collided && axis == 1 && delta < 0.0f) {
+            const float GROUND_PROBE = 0.02f; // 1~5cm typical; tune 0.01~0.05
+
+            AABB boxNow = aabb();
+            AABB probe = boxNow;
+            probe.min.y -= GROUND_PROBE;
+
+            int px0 = std::clamp(minCellFromWorld(probe.min.x, CX), 0, VoxelWorld::SX - 1);
+            int px1 = std::clamp(maxCellFromWorld(probe.max.x, CX), 0, VoxelWorld::SX - 1);
+            int py0 = std::clamp(minCellFromWorld(probe.min.y, CY), 0, VoxelWorld::SY - 1);
+            int py1 = std::clamp(maxCellFromWorld(probe.max.y, CY), 0, VoxelWorld::SY - 1);
+            int pz0 = std::clamp(minCellFromWorld(probe.min.z, CZ), 0, VoxelWorld::SZ - 1);
+            int pz1 = std::clamp(maxCellFromWorld(probe.max.z, CZ), 0, VoxelWorld::SZ - 1);
+
+            bool foundGround = false;
+            float bestTopY = -1e9f;
+
+            for (int z = pz0; z <= pz1; ++z) {
+                for (int y = py0; y <= py1; ++y) {
+                    for (int x = px0; x <= px1; ++x) {
+                        if (!isSolidCell(world, x, y, z))
+                            continue;
+
+                        AABB blk = blockAABB(x, y, z);
+                        if (!overlap(probe, blk))
+                            continue;
+
+                        foundGround = true;
+                        bestTopY = std::max(bestTopY, blk.max.y);
+                    }
+                }
+            }
+
+            if (foundGround) {
+                // Snap feet to the top surface (leave EPS gap)
+                position.y = bestTopY + halfSize.y + EPS;
+                velocity.y = 0.0f;
+                onGround = true;
+                onCollideDown();
+            }
+        }
+        // -------------------------------
+
+        // Keep body inside the finite world volume.
         clampToWorldBounds(axis);
     }
 };
