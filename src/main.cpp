@@ -78,9 +78,8 @@ static constexpr float CZ = (VoxelWorld::SZ - 1) * 0.5f;
 // Meshing (only faces adjacent to air)
 // -----------------------
 struct FaceDef {
-    int dx, dy, dz;        // neighbor direction
-    float nx, ny, nz;      // face normal
-    // 6 vertices; each vertex: offset(x,y,z,u,v)
+    int dx, dy, dz;
+    float nx, ny, nz;
     float v[6][5];
 };
 
@@ -100,32 +99,32 @@ static void pushVertex(std::vector<float>& out,
 
 static std::vector<float> buildVisibleFaceMesh(const VoxelWorld& world) {
     static const FaceDef faces[6] = {
-        // -Z (back)
+        // -Z
         { 0, 0,-1,  0, 0,-1, {
             {-0.5f,-0.5f,-0.5f, 0,0}, { 0.5f,-0.5f,-0.5f, 1,0}, { 0.5f, 0.5f,-0.5f, 1,1},
             { 0.5f, 0.5f,-0.5f, 1,1}, {-0.5f, 0.5f,-0.5f, 0,1}, {-0.5f,-0.5f,-0.5f, 0,0},
         }},
-        // +Z (front)
+        // +Z
         { 0, 0, 1,  0, 0, 1, {
             {-0.5f,-0.5f, 0.5f, 0,0}, { 0.5f,-0.5f, 0.5f, 1,0}, { 0.5f, 0.5f, 0.5f, 1,1},
             { 0.5f, 0.5f, 0.5f, 1,1}, {-0.5f, 0.5f, 0.5f, 0,1}, {-0.5f,-0.5f, 0.5f, 0,0},
         }},
-        // -X (left)
+        // -X
         {-1, 0, 0, -1, 0, 0, {
             {-0.5f, 0.5f, 0.5f, 1,0}, {-0.5f, 0.5f,-0.5f, 1,1}, {-0.5f,-0.5f,-0.5f, 0,1},
             {-0.5f,-0.5f,-0.5f, 0,1}, {-0.5f,-0.5f, 0.5f, 0,0}, {-0.5f, 0.5f, 0.5f, 1,0},
         }},
-        // +X (right)
+        // +X
         { 1, 0, 0,  1, 0, 0, {
             { 0.5f, 0.5f, 0.5f, 1,0}, { 0.5f, 0.5f,-0.5f, 1,1}, { 0.5f,-0.5f,-0.5f, 0,1},
             { 0.5f,-0.5f,-0.5f, 0,1}, { 0.5f,-0.5f, 0.5f, 0,0}, { 0.5f, 0.5f, 0.5f, 1,0},
         }},
-        // -Y (bottom)
+        // -Y
         { 0,-1, 0,  0,-1, 0, {
             {-0.5f,-0.5f,-0.5f, 0,1}, { 0.5f,-0.5f,-0.5f, 1,1}, { 0.5f,-0.5f, 0.5f, 1,0},
             { 0.5f,-0.5f, 0.5f, 1,0}, {-0.5f,-0.5f, 0.5f, 0,0}, {-0.5f,-0.5f,-0.5f, 0,1},
         }},
-        // +Y (top)
+        // +Y
         { 0, 1, 0,  0, 1, 0, {
             {-0.5f, 0.5f,-0.5f, 0,1}, { 0.5f, 0.5f,-0.5f, 1,1}, { 0.5f, 0.5f, 0.5f, 1,0},
             { 0.5f, 0.5f, 0.5f, 1,0}, {-0.5f, 0.5f, 0.5f, 0,0}, {-0.5f, 0.5f,-0.5f, 0,1},
@@ -189,8 +188,8 @@ static void rebuildWorldMesh() {
 // -----------------------
 struct RaycastHit {
     bool hit = false;
-    glm::ivec3 block{0};     // voxel cell index
-    glm::ivec3 normal{0};    // face normal from hit block toward air
+    glm::ivec3 block{0};
+    glm::ivec3 normal{0};
     float t = 0.0f;
 };
 
@@ -266,7 +265,6 @@ static bool editBlock(bool place) {
     if (gWorld.hasBlock(placeCell.x, placeCell.y, placeCell.z))
         return false;
 
-    // Don't allow placing a block inside the player
     voxel_physics::AABB playerBox = gPlayer.aabb();
     voxel_physics::AABB blockBox  = voxel_physics::blockAABB(placeCell.x, placeCell.y, placeCell.z);
     if (voxel_physics::overlap(playerBox, blockBox))
@@ -286,7 +284,7 @@ int main()
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
 
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Voxel World (DirLight Orbit in XZ-diagonal plane)", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Voxel World (Two DirLights Sun+Moon)", NULL, NULL);
     if (window == NULL) {
         std::cout << "Failed to create GLFW window\n";
         glfwTerminate();
@@ -324,16 +322,13 @@ int main()
 
         int topY = -1;
         for (int y = VoxelWorld::SY - 1; y >= 0; --y) {
-            if (gWorld.hasBlock(sx, y, sz)) {
-                topY = y;
-                break;
-            }
+            if (gWorld.hasBlock(sx, y, sz)) { topY = y; break; }
         }
 
         float groundTop = (topY >= 0) ? ((float)topY - CY + 0.5f) : 0.0f;
         gPlayer.position = glm::vec3((float)sx - CX,
-                                    groundTop + gPlayer.halfSize.y + voxel_physics::EPS,
-                                    (float)sz - CZ);
+                                     groundTop + gPlayer.halfSize.y + voxel_physics::EPS,
+                                     (float)sz - CZ);
         gPlayer.velocity = glm::vec3(0.0f);
         gPlayer.onGround = true;
 
@@ -348,8 +343,6 @@ int main()
 
     glBindVertexArray(gMeshVAO);
     glBindBuffer(GL_ARRAY_BUFFER, gMeshVBO);
-
-    // Upload initial mesh
     uploadMeshToGPU();
 
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
@@ -391,7 +384,7 @@ int main()
     glEnableVertexAttribArray(0);
 
     // ----------------------
-    // Day/Night (Directional Light)
+    // Day/Night orbit (simple ring in a plane)
     // ----------------------
     const glm::vec3 orbitCenter(0.0f, 0.0f, 0.0f);
     const float orbitRadius = 120.0f;
@@ -400,16 +393,9 @@ int main()
     const float dayLengthSec = 60.0f;
     const float omega = 6.28318530718f / dayLengthSec;
 
-    // Orbit plane is spanned by:
-    //  - Up axis (Y)
-    //  - A diagonal horizontal axis between X and Z
-    // This ensures sun/moon direction has BOTH x and z components during the cycle,
-    // so Z faces won't be permanently dark.
+    // Orbit plane spanned by Up (Y) and a diagonal between X and Z
     const glm::vec3 orbitUp(0.0f, 1.0f, 0.0f);
-    glm::vec3 orbitDiagXZ = glm::normalize(glm::vec3(1.0f, 0.0f, 1.0f)); // between +X and +Z
-
-    // (Optional) if you want more Z influence than X, you can tweak it:
-    // orbitDiagXZ = glm::normalize(glm::vec3(0.6f, 0.0f, 0.8f));
+    const glm::vec3 orbitDiagXZ = glm::normalize(glm::vec3(1.0f, 0.0f, 1.0f));
 
     while (!glfwWindowShouldClose(window))
     {
@@ -442,7 +428,6 @@ int main()
 
             gPlayer.applyControl(wish, gInput.jumpPressed, gInput.sprint, deltaTime);
             gPlayer.step(gWorld, deltaTime);
-
             camera.Position = gPlayer.eyePosition();
         }
 
@@ -458,51 +443,23 @@ int main()
         float t = (float)glfwGetTime();
         float angle = t * omega;
 
-        // Circle in the plane spanned by (orbitDiagXZ, orbitUp)
-        // offset = R * (cos(angle)*diag + sin(angle)*up)
+        // Simple ring motion in the (orbitDiagXZ, orbitUp) plane
         glm::vec3 sunOffset  = orbitRadius * (std::cos(angle) * orbitDiagXZ + std::sin(angle) * orbitUp);
         glm::vec3 moonOffset = -sunOffset;
 
-        // Visual positions (for cubes)
-        // glm::vec3 sunPos  = orbitCenter + sunOffset  + glm::vec3(0.0f, orbitHeightBias, 0.0f);
-        // glm::vec3 moonPos = orbitCenter + moonOffset + glm::vec3(0.0f, orbitHeightBias, 0.0f);
+        glm::vec3 sunPos  = orbitCenter + sunOffset  + glm::vec3(0.0f, orbitHeightBias, 0.0f);
+        glm::vec3 moonPos = orbitCenter + moonOffset + glm::vec3(0.0f, orbitHeightBias, 0.0f);
 
-        // Directional light ray direction (light -> scene)
-        // Use offset WITHOUT height bias so day/night comes from the orbit itself.
+        // Directional ray directions (light -> scene)
         glm::vec3 sunRayDir  = glm::normalize(-sunOffset);
         glm::vec3 moonRayDir = glm::normalize(-moonOffset);
 
-        // Strength based on whether rays point downward
+        // Simple day/night gating by "points downward"
         float sunUp  = std::max(0.0f, -sunRayDir.y);
         float moonUp = std::max(0.0f, -moonRayDir.y);
 
-        // Curves
         float sunStrength  = sunUp * sunUp;
         float moonStrength = std::sqrt(moonUp);
-
-        // Blend direction smoothly (avoid sudden flip near horizon)
-        glm::vec3 mixedDir = glm::vec3(0.0f);
-        float wSum = sunStrength + moonStrength;
-        if (wSum > 1e-6f) {
-            mixedDir = glm::normalize(sunRayDir * sunStrength + moonRayDir * moonStrength);
-        } else {
-            mixedDir = sunRayDir; // fallback
-        }
-
-        // Colors (same style as before)
-        glm::vec3 baseAmbient(0.012f);
-
-        glm::vec3 sunAmb = glm::vec3(0.02f, 0.015f, 0.010f) * sunStrength;
-        glm::vec3 sunDif = glm::vec3(1.00f, 0.85f, 0.65f)  * (1.25f * sunStrength);
-        glm::vec3 sunSpe = glm::vec3(1.00f, 0.95f, 0.85f)  * (1.10f * sunStrength);
-
-        glm::vec3 moonAmb = glm::vec3(0.008f, 0.010f, 0.020f) * moonStrength;
-        glm::vec3 moonDif = glm::vec3(0.25f,  0.35f,  0.90f)  * (1.20f * moonStrength);
-        glm::vec3 moonSpe = glm::vec3(0.30f,  0.40f,  1.00f)  * (1.10f * moonStrength);
-
-        glm::vec3 dirAmbient  = baseAmbient + sunAmb + moonAmb;
-        glm::vec3 dirDiffuse  = sunDif + moonDif;
-        glm::vec3 dirSpecular = sunSpe + moonSpe;
 
         glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom),
                                                 (float)SCR_WIDTH / (float)SCR_HEIGHT,
@@ -516,13 +473,20 @@ int main()
         lightingShader.setInt("material.specular", 1);
         lightingShader.setFloat("material.shininess", 64.0f);
 
-        // Directional light = blended Sun/Moon
-        lightingShader.setVec3("dirLight.direction", mixedDir);
-        lightingShader.setVec3("dirLight.ambient",   dirAmbient);
-        lightingShader.setVec3("dirLight.diffuse",   dirDiffuse);
-        lightingShader.setVec3("dirLight.specular",  dirSpecular);
+        // Sun dir light
+        lightingShader.setVec3("sunLight.direction", sunRayDir);
+        lightingShader.setVec3("sunLight.ambient",   glm::vec3(0.02f, 0.015f, 0.010f) * sunStrength);
+        lightingShader.setVec3("sunLight.diffuse",   glm::vec3(1.00f, 0.85f, 0.65f)  * (1.25f * sunStrength));
+        lightingShader.setVec3("sunLight.specular",  glm::vec3(1.00f, 0.95f, 0.85f)  * (1.10f * sunStrength));
 
-        // Spot light (flashlight)
+        // Moon dir light (also carries a small base ambient so nights aren't pitch black)
+        glm::vec3 baseAmbient(0.012f);
+        lightingShader.setVec3("moonLight.direction", moonRayDir);
+        lightingShader.setVec3("moonLight.ambient",   baseAmbient + glm::vec3(0.008f, 0.010f, 0.020f) * moonStrength);
+        lightingShader.setVec3("moonLight.diffuse",   glm::vec3(0.25f,  0.35f,  0.90f) * (1.20f * moonStrength));
+        lightingShader.setVec3("moonLight.specular",  glm::vec3(0.30f,  0.40f,  1.00f) * (1.10f * moonStrength));
+
+        // Flashlight (spotLight)
         lightingShader.setVec3("spotLight.position",  camera.Position);
         lightingShader.setVec3("spotLight.direction", camera.Front);
         lightingShader.setVec3("spotLight.ambient",   0.0f, 0.0f, 0.0f);
@@ -548,26 +512,26 @@ int main()
         glDrawArrays(GL_TRIANGLES, 0, gMeshVertexCount);
 
         // ----- Visual sun/moon cubes -----
-        // lightCubeShader.use();
-        // lightCubeShader.setMat4("projection", projection);
-        // lightCubeShader.setMat4("view", view);
-        //
-        // glBindVertexArray(lightCubeVAO);
-        //
-        // {   // sun cube
-        //     glm::mat4 m = glm::mat4(1.0f);
-        //     m = glm::translate(m, sunPos);
-        //     m = glm::scale(m, glm::vec3(1.2f));
-        //     lightCubeShader.setMat4("model", m);
-        //     glDrawArrays(GL_TRIANGLES, 0, 36);
-        // }
-        // {   // moon cube
-        //     glm::mat4 m = glm::mat4(1.0f);
-        //     m = glm::translate(m, moonPos);
-        //     m = glm::scale(m, glm::vec3(1.0f));
-        //     lightCubeShader.setMat4("model", m);
-        //     glDrawArrays(GL_TRIANGLES, 0, 36);
-        // }
+        lightCubeShader.use();
+        lightCubeShader.setMat4("projection", projection);
+        lightCubeShader.setMat4("view", view);
+
+        glBindVertexArray(lightCubeVAO);
+
+        {   // sun cube
+            glm::mat4 m = glm::mat4(1.0f);
+            m = glm::translate(m, sunPos);
+            m = glm::scale(m, glm::vec3(1.2f));
+            lightCubeShader.setMat4("model", m);
+            glDrawArrays(GL_TRIANGLES, 0, 36);
+        }
+        {   // moon cube
+            glm::mat4 m = glm::mat4(1.0f);
+            m = glm::translate(m, moonPos);
+            m = glm::scale(m, glm::vec3(1.0f));
+            lightCubeShader.setMat4("model", m);
+            glDrawArrays(GL_TRIANGLES, 0, 36);
+        }
 
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -597,7 +561,6 @@ static void processInput(GLFWwindow* window)
 
     gInput.sprint = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
 
-    // edge-trigger jump
     bool spaceDown = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
     gInput.jumpPressed = spaceDown && !gSpaceWasDown;
     gSpaceWasDown = spaceDown;

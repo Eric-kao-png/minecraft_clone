@@ -8,7 +8,7 @@ struct Material {
 };
 
 struct DirLight {
-    vec3 direction; // light ray direction (light -> scene)
+    vec3 direction; // ray direction (light -> scene)
     vec3 ambient;
     vec3 diffuse;
     vec3 specular;
@@ -51,13 +51,16 @@ out vec4 FragColor;
 uniform vec3 viewPos;
 uniform Material material;
 
-// Keep the "original style" uniforms: one dirLight, N pointLights, one spotLight
-uniform DirLight dirLight;
+// Two directional lights
+uniform DirLight sunLight;
+uniform DirLight moonLight;
 
+// Keep point light structure (disabled when NR_POINT_LIGHTS == 0)
 #if NR_POINT_LIGHTS > 0
 uniform PointLight pointLights[NR_POINT_LIGHTS];
 #endif
 
+// Flashlight
 uniform SpotLight spotLight;
 
 in vec3 FragPos;
@@ -69,16 +72,19 @@ void main()
     vec3 norm = normalize(Normal);
     vec3 viewDir = normalize(viewPos - FragPos);
 
-    // phase 1: Directional lighting (Sun/Moon combined from main)
-    vec3 result = CalcDirLight(dirLight, norm, viewDir);
+    vec3 result = vec3(0.0);
 
-    // phase 2: Point lights (disabled when NR_POINT_LIGHTS == 0)
+    // Sun + Moon directional lights
+    result += CalcDirLight(sunLight,  norm, viewDir);
+    result += CalcDirLight(moonLight, norm, viewDir);
+
+    // Point lights (disabled)
 #if NR_POINT_LIGHTS > 0
     for (int i = 0; i < NR_POINT_LIGHTS; i++)
         result += CalcPointLight(pointLights[i], norm, FragPos, viewDir);
 #endif
 
-    // phase 3: Spot light (flashlight)
+    // Flashlight
     result += CalcSpotLight(spotLight, norm, FragPos, viewDir);
 
     FragColor = vec4(result, 1.0);
