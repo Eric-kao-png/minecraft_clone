@@ -447,9 +447,6 @@ int main()
         glm::vec3 sunOffset  = orbitRadius * (std::cos(angle) * orbitDiagXZ + std::sin(angle) * orbitUp);
         glm::vec3 moonOffset = -sunOffset;
 
-        glm::vec3 sunPos  = orbitCenter + sunOffset  + glm::vec3(0.0f, orbitHeightBias, 0.0f);
-        glm::vec3 moonPos = orbitCenter + moonOffset + glm::vec3(0.0f, orbitHeightBias, 0.0f);
-
         // Directional ray directions (light -> scene)
         glm::vec3 sunRayDir  = glm::normalize(-sunOffset);
         glm::vec3 moonRayDir = glm::normalize(-moonOffset);
@@ -510,28 +507,6 @@ int main()
 
         glBindVertexArray(gMeshVAO);
         glDrawArrays(GL_TRIANGLES, 0, gMeshVertexCount);
-
-        // ----- Visual sun/moon cubes -----
-        lightCubeShader.use();
-        lightCubeShader.setMat4("projection", projection);
-        lightCubeShader.setMat4("view", view);
-
-        glBindVertexArray(lightCubeVAO);
-
-        {   // sun cube
-            glm::mat4 m = glm::mat4(1.0f);
-            m = glm::translate(m, sunPos);
-            m = glm::scale(m, glm::vec3(1.2f));
-            lightCubeShader.setMat4("model", m);
-            glDrawArrays(GL_TRIANGLES, 0, 36);
-        }
-        {   // moon cube
-            glm::mat4 m = glm::mat4(1.0f);
-            m = glm::translate(m, moonPos);
-            m = glm::scale(m, glm::vec3(1.0f));
-            lightCubeShader.setMat4("model", m);
-            glDrawArrays(GL_TRIANGLES, 0, 36);
-        }
 
         glfwSwapBuffers(window);
         glfwPollEvents();
