@@ -1,43 +1,106 @@
 #pragma once
-#include <cstdint>
-#include <cstddef>
 
-// Fixed-size voxel world: 100 x 100 x 100
-// blocks_[x][y][z] = 1 means a cube exists at that cell, 0 means air.
+#include <glm/glm.hpp>
+
+#include <cstdint>
+#include <memory>
+#include <unordered_map>
+#include <vector>
+
 class VoxelWorld {
 public:
-    static constexpr int SX = 100;
-    static constexpr int SY = 100;
-    static constexpr int SZ = 100;
+    static constexpr int CHUNK_SIZE_X = 16;
+    static constexpr int CHUNK_SIZE_Y = 96;   // vertical build height is still fixed
+    static constexpr int CHUNK_SIZE_Z = 16;
 
-    using Grid = uint8_t[SX][SY][SZ];
+    struct RaycastHit {
+        bool hit = false;
+        glm::ivec3 block{0};
+        glm::ivec3 normal{0};
+        float t = 0.0f;
+    };
 
-    VoxelWorld();
+    VoxelWorld() = default;
 
-    Grid& grid() { return blocks_; }
-    const Grid& grid() const { return blocks_; }
+    void setSeed(uint32_t seed) { seed_ = seed; }
 
-    bool inBounds(int x, int y, int z) const;
-    bool hasBlock(int x, int y, int z) const;
-    void setBlock(int x, int y, int z, bool on);
+    bool hasBlockGlobal(int wx, int wy, int wz) const;
+    void setBlockGlobal(int wx, int wy, int wz, bool solid);
 
+    int sampleSurfaceY(int wx, int wz) const;
+
+    void updateStreaming(const glm::vec3& playerPos, int loadRadius, int unloadRadius);
+    void render() const;
     void clear();
-    std::size_t countSolid() const;
 
-    // Column terrain across the whole map:
-    // For each (x,z):
-    //   h = baseY + amplitude * fbm2D(x*noiseScale, z*noiseScale)
-    // Fill blocks for y <= h.
-    void generateTerrainMidLevel(
-        uint32_t seed = 1337,
-        int baseY = SY / 2,
-        double noiseScale = 0.08,
-        double amplitude = 20.0,
-        int octaves = 5,
-        double lacunarity = 2.0,
-        double gain = 0.5
-    );
+    bool raycast(const glm::vec3& origin,
+                 const glm::vec3& dir,
+                 float maxDist,
+                 float step,
+                 RaycastHit& out) const;
+
+    int loadedChunkCount() const { return static_cast<int>(chunks_.size()); }
 
 private:
-    Grid blocks_{}; // zero-initialized
+    struct ChunkCoord {
+        int x = 0;
+        int z = 0;
+
+        bool operator==(const ChunkCoord& other) const {
+            return x == other.x && z == other.z;
+        }
+    };
+
+    struct ChunkCoordHash {
+        std::size_t operator()(const ChunkCoord& c) const;
+    };
+
+    struct Chunk {
+        ChunkCoord coord;
+        std::vector<uint8_t> blocks;
+        std::vector<float> mesh;
+
+        bool dirty = true;
+        bool modified = false;
+        int vertexCount = 0;
+
+        unsigned int vao = 0;
+        unsigned int vbo = 0;
+
+        Chunk(int cx, int cz);
+
+        uint8_t& at(int lx, int y, int lz);
+        uint8_t at(int lx, int y, int lz) const;
+    };
+
+private:
+    uint32_t seed_ = 2026;
+    int baseHeight_ = 36;
+    double amplitude_ = 18.0;
+    double noiseScale_ = 0.045;
+    int octaves_ = 4;
+    double lacunarity_ = 2.0;
+    double gain_ = 0.5;
+
+    std::unordered_map<ChunkCoord, std::unique_ptr<Chunk>, ChunkCoordHash> chunks_;
+
+    static int floorDiv(int a, int b);
+    static int positiveMod(int a, int b);
+    static int worldToBlock(float v);
+
+    static int worldToChunkX(int wx) { return floorDiv(wx, CHUNK_SIZE_X); }
+    static int worldToChunkZ(int wz) { return floorDiv(wz, CHUNK_SIZE_Z); }
+    static int worldToLocalX(int wx) { return positiveMod(wx, CHUNK_SIZE_X); }
+    static int worldToLocalZ(int wz) { return positiveMod(wz, CHUNK_SIZE_Z); }
+
+    Chunk* getLoadedChunk(int cx, int cz);
+    const Chunk* getLoadedChunk(int cx, int cz) const;
+    Chunk& getOrCreateChunk(int cx, int cz);
+
+    bool sampleGeneratedBlock(int wx, int wy, int wz) const;
+
+    void generateChunk(Chunk& chunk) const;
+    void buildChunkMesh(Chunk& chunk) const;
+    void uploadChunkMesh(Chunk& chunk) const;
+    void markChunkAndNeighborsDirty(int cx, int cz);
 };

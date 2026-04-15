@@ -6,46 +6,42 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include <../learnopengl/shader_m.h>
 #include <../learnopengl/camera.h>
+#include <../learnopengl/shader_m.h>
 
-#include "world/VoxelWorld.h"
 #include "physics/Player.h"
+#include "world/VoxelWorld.h"
 
-#include <iostream>
-#include <vector>
-#include <string>
-#include <cmath>
 #include <algorithm>
+#include <cmath>
+#include <iostream>
 
-// callbacks / helpers
 static void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 static void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 static void mouse_button_callback(GLFWwindow* window, int button, int action, int mods);
 static void processInput(GLFWwindow* window);
 static unsigned int loadTexture(const char* path);
+static bool editBlock(bool place);
 
-// settings
-static const unsigned int SCR_WIDTH  = 1280;
+static const unsigned int SCR_WIDTH = 1280;
 static const unsigned int SCR_HEIGHT = 720;
 
-// camera
-static Camera camera(glm::vec3(0.0f, 25.0f, 0.0f),
+static const int LOAD_RADIUS = 4;
+static const int UNLOAD_RADIUS = 6;
+
+static Camera camera(glm::vec3(0.0f, 45.0f, 0.0f),
                      glm::vec3(0.0f, 1.0f, 0.0f),
                      -90.0f, -20.0f);
 static float lastX = SCR_WIDTH / 2.0f;
 static float lastY = SCR_HEIGHT / 2.0f;
 static bool firstMouse = true;
 
-// timing
 static float deltaTime = 0.0f;
 static float lastFrame = 0.0f;
 
-// -----------------------
-// Player physics (AABB + gravity + voxel collisions)
-// -----------------------
 static Player gPlayer;
+static VoxelWorld gWorld;
 
 struct InputState {
     bool forward = false;
@@ -53,229 +49,42 @@ struct InputState {
     bool left = false;
     bool right = false;
     bool sprint = false;
-    bool jumpPressed = false; // edge-triggered
+    bool jumpPressed = false;
 };
 
 static InputState gInput;
 static bool gSpaceWasDown = false;
 
-// -----------------------
-// World + mesh globals
-// -----------------------
-static VoxelWorld gWorld;
-static std::vector<float> gMesh;     // [x y z nx ny nz u v]...
-static GLsizei gMeshVertexCount = 0;
-static unsigned int gMeshVAO = 0;
-static unsigned int gMeshVBO = 0;
-static bool gMeshDirty = false;
-
-// World is centered around origin in render-space
-static constexpr float CX = (VoxelWorld::SX - 1) * 0.5f;
-static constexpr float CY = (VoxelWorld::SY - 1) * 0.5f;
-static constexpr float CZ = (VoxelWorld::SZ - 1) * 0.5f;
-
-// -----------------------
-// Meshing (only faces adjacent to air)
-// -----------------------
-struct FaceDef {
-    int dx, dy, dz;
-    float nx, ny, nz;
-    float v[6][5];
-};
-
-static bool isAir(const VoxelWorld& w, int x, int y, int z) {
-    if (!w.inBounds(x, y, z)) return true;
-    return !w.hasBlock(x, y, z);
-}
-
-static void pushVertex(std::vector<float>& out,
-                       float px, float py, float pz,
-                       float nx, float ny, float nz,
-                       float u, float v) {
-    out.push_back(px); out.push_back(py); out.push_back(pz);
-    out.push_back(nx); out.push_back(ny); out.push_back(nz);
-    out.push_back(u);  out.push_back(v);
-}
-
-static std::vector<float> buildVisibleFaceMesh(const VoxelWorld& world) {
-    static const FaceDef faces[6] = {
-        // -Z
-        { 0, 0,-1,  0, 0,-1, {
-            {-0.5f,-0.5f,-0.5f, 0,0}, { 0.5f,-0.5f,-0.5f, 1,0}, { 0.5f, 0.5f,-0.5f, 1,1},
-            { 0.5f, 0.5f,-0.5f, 1,1}, {-0.5f, 0.5f,-0.5f, 0,1}, {-0.5f,-0.5f,-0.5f, 0,0},
-        }},
-        // +Z
-        { 0, 0, 1,  0, 0, 1, {
-            {-0.5f,-0.5f, 0.5f, 0,0}, { 0.5f,-0.5f, 0.5f, 1,0}, { 0.5f, 0.5f, 0.5f, 1,1},
-            { 0.5f, 0.5f, 0.5f, 1,1}, {-0.5f, 0.5f, 0.5f, 0,1}, {-0.5f,-0.5f, 0.5f, 0,0},
-        }},
-        // -X
-        {-1, 0, 0, -1, 0, 0, {
-            {-0.5f, 0.5f, 0.5f, 1,0}, {-0.5f, 0.5f,-0.5f, 1,1}, {-0.5f,-0.5f,-0.5f, 0,1},
-            {-0.5f,-0.5f,-0.5f, 0,1}, {-0.5f,-0.5f, 0.5f, 0,0}, {-0.5f, 0.5f, 0.5f, 1,0},
-        }},
-        // +X
-        { 1, 0, 0,  1, 0, 0, {
-            { 0.5f, 0.5f, 0.5f, 1,0}, { 0.5f, 0.5f,-0.5f, 1,1}, { 0.5f,-0.5f,-0.5f, 0,1},
-            { 0.5f,-0.5f,-0.5f, 0,1}, { 0.5f,-0.5f, 0.5f, 0,0}, { 0.5f, 0.5f, 0.5f, 1,0},
-        }},
-        // -Y
-        { 0,-1, 0,  0,-1, 0, {
-            {-0.5f,-0.5f,-0.5f, 0,1}, { 0.5f,-0.5f,-0.5f, 1,1}, { 0.5f,-0.5f, 0.5f, 1,0},
-            { 0.5f,-0.5f, 0.5f, 1,0}, {-0.5f,-0.5f, 0.5f, 0,0}, {-0.5f,-0.5f,-0.5f, 0,1},
-        }},
-        // +Y
-        { 0, 1, 0,  0, 1, 0, {
-            {-0.5f, 0.5f,-0.5f, 0,1}, { 0.5f, 0.5f,-0.5f, 1,1}, { 0.5f, 0.5f, 0.5f, 1,0},
-            { 0.5f, 0.5f, 0.5f, 1,0}, {-0.5f, 0.5f, 0.5f, 0,0}, {-0.5f, 0.5f,-0.5f, 0,1},
-        }},
-    };
-
-    std::vector<float> mesh;
-    mesh.reserve(2'000'000);
-
-    for (int z = 0; z < VoxelWorld::SZ; ++z) {
-        for (int y = 0; y < VoxelWorld::SY; ++y) {
-            for (int x = 0; x < VoxelWorld::SX; ++x) {
-                if (!world.hasBlock(x, y, z)) continue;
-
-                float px = (float)x - CX;
-                float py = (float)y - CY;
-                float pz = (float)z - CZ;
-
-                for (const auto& f : faces) {
-                    int nxCell = x + f.dx;
-                    int nyCell = y + f.dy;
-                    int nzCell = z + f.dz;
-
-                    if (!isAir(world, nxCell, nyCell, nzCell))
-                        continue;
-
-                    for (int i = 0; i < 6; ++i) {
-                        float ox = f.v[i][0], oy = f.v[i][1], oz = f.v[i][2];
-                        float u  = f.v[i][3], v  = f.v[i][4];
-                        pushVertex(mesh,
-                                   px + ox, py + oy, pz + oz,
-                                   f.nx, f.ny, f.nz,
-                                   u, v);
-                    }
-                }
-            }
-        }
-    }
-
-    return mesh;
-}
-
-static void uploadMeshToGPU() {
-    gMeshVertexCount = (GLsizei)(gMesh.size() / 8);
-
-    glBindBuffer(GL_ARRAY_BUFFER, gMeshVBO);
-    glBufferData(GL_ARRAY_BUFFER,
-                 gMesh.size() * sizeof(float),
-                 gMesh.empty() ? nullptr : gMesh.data(),
-                 GL_DYNAMIC_DRAW);
-}
-
-static void rebuildWorldMesh() {
-    gMesh = buildVisibleFaceMesh(gWorld);
-    uploadMeshToGPU();
-    std::cout << "Rebuilt mesh. Vertices: " << gMeshVertexCount << "\n";
-}
-
-// -----------------------
-// Simple step raycast
-// -----------------------
-struct RaycastHit {
-    bool hit = false;
-    glm::ivec3 block{0};
-    glm::ivec3 normal{0};
-    float t = 0.0f;
-};
-
-static glm::ivec3 worldPosToCell(const glm::vec3& p) {
-    return glm::ivec3(
-        (int)std::floor(p.x + CX + 0.5f),
-        (int)std::floor(p.y + CY + 0.5f),
-        (int)std::floor(p.z + CZ + 0.5f)
-    );
-}
-
-static glm::ivec3 approxHitNormalFromDir(const glm::vec3& dir) {
-    glm::vec3 a = glm::abs(dir);
-    if (a.x >= a.y && a.x >= a.z) return glm::ivec3(dir.x > 0 ? -1 : 1, 0, 0);
-    if (a.y >= a.x && a.y >= a.z) return glm::ivec3(0, dir.y > 0 ? -1 : 1, 0);
-    return glm::ivec3(0, 0, dir.z > 0 ? -1 : 1);
-}
-
-static bool raycastStep(const VoxelWorld& world,
-                        const glm::vec3& origin,
-                        const glm::vec3& dir,
-                        float maxDist,
-                        float step,
-                        RaycastHit& out) {
-    glm::vec3 d = glm::normalize(dir);
-
-    glm::ivec3 lastCell = worldPosToCell(origin);
-    glm::ivec3 prevCell = lastCell;
-    bool hasPrev = false;
-
-    for (float t = 0.0f; t <= maxDist; t += step) {
-        glm::vec3 p = origin + d * t;
-        glm::ivec3 cell = worldPosToCell(p);
-
-        if (cell != lastCell) {
-            prevCell = lastCell;
-            hasPrev = true;
-            lastCell = cell;
-        }
-
-        if (!world.inBounds(cell.x, cell.y, cell.z))
-            continue;
-
-        if (world.hasBlock(cell.x, cell.y, cell.z)) {
-            out.hit = true;
-            out.block = cell;
-            out.t = t;
-            out.normal = hasPrev ? (prevCell - cell) : approxHitNormalFromDir(d);
-            if (out.normal == glm::ivec3(0)) out.normal = approxHitNormalFromDir(d);
-            return true;
-        }
-    }
-
-    return false;
-}
-
 static bool editBlock(bool place) {
-    const float maxReach = 6.0f;
-    const float step = 0.10f;
-
-    RaycastHit hit;
-    if (!raycastStep(gWorld, camera.Position, camera.Front, maxReach, step, hit))
+    VoxelWorld::RaycastHit hit;
+    if (!gWorld.raycast(camera.Position, camera.Front, 6.0f, 0.10f, hit)) {
         return false;
+    }
 
     if (!place) {
-        gWorld.setBlock(hit.block.x, hit.block.y, hit.block.z, false);
+        gWorld.setBlockGlobal(hit.block.x, hit.block.y, hit.block.z, false);
         return true;
     }
 
-    glm::ivec3 placeCell = hit.block + hit.normal;
-    if (!gWorld.inBounds(placeCell.x, placeCell.y, placeCell.z))
+    const glm::ivec3 target = hit.block + hit.normal;
+    if (target.y < 0 || target.y >= VoxelWorld::CHUNK_SIZE_Y) {
         return false;
-    if (gWorld.hasBlock(placeCell.x, placeCell.y, placeCell.z))
+    }
+    if (gWorld.hasBlockGlobal(target.x, target.y, target.z)) {
         return false;
+    }
 
-    voxel_physics::AABB playerBox = gPlayer.aabb();
-    voxel_physics::AABB blockBox  = voxel_physics::blockAABB(placeCell.x, placeCell.y, placeCell.z);
-    if (voxel_physics::overlap(playerBox, blockBox))
+    const voxel_physics::AABB playerBox = gPlayer.aabb();
+    const voxel_physics::AABB blockBox = voxel_physics::blockAABB(target.x, target.y, target.z);
+    if (voxel_physics::overlap(playerBox, blockBox)) {
         return false;
+    }
 
-    gWorld.setBlock(placeCell.x, placeCell.y, placeCell.z, true);
+    gWorld.setBlockGlobal(target.x, target.y, target.z, true);
     return true;
 }
 
-int main()
-{
+int main() {
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -284,8 +93,8 @@ int main()
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
 
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Voxel World (Two DirLights Sun+Moon)", NULL, NULL);
-    if (window == NULL) {
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Voxel Chunks", nullptr, nullptr);
+    if (window == nullptr) {
         std::cout << "Failed to create GLFW window\n";
         glfwTerminate();
         return -1;
@@ -296,7 +105,6 @@ int main()
     glfwSetCursorPosCallback(window, mouse_callback);
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
-
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
@@ -307,192 +115,118 @@ int main()
     glEnable(GL_DEPTH_TEST);
 
     Shader lightingShader("../shaders/colors.vs", "../shaders/colors.fs");
-    Shader lightCubeShader("../shaders/light_cube.vs", "../shaders/light_cube.fs");
 
-    unsigned int diffuseMap  = loadTexture("../resources/container2.png");
-    unsigned int specularMap = loadTexture("../resources/container2_specular.png");
+    const unsigned int diffuseMap = loadTexture("../resources/container2.png");
+    const unsigned int specularMap = loadTexture("../resources/container2_specular.png");
 
-    // World
-    gWorld.generateTerrainMidLevel(2026, 50, 0.08, 20.0, 5, 2.0, 0.5);
+    gWorld.setSeed(2026);
 
-    // Spawn player at the center, standing on terrain
-    {
-        const int sx = VoxelWorld::SX / 2;
-        const int sz = VoxelWorld::SZ / 2;
+    const int spawnX = 0;
+    const int spawnZ = 0;
+    const int surfaceY = gWorld.sampleSurfaceY(spawnX, spawnZ);
+    const float groundTopY = static_cast<float>(surfaceY) + 0.5f;
 
-        int topY = -1;
-        for (int y = VoxelWorld::SY - 1; y >= 0; --y) {
-            if (gWorld.hasBlock(sx, y, sz)) { topY = y; break; }
-        }
+    // 先出生在地表上方一點，避免一開始半卡地面
+    gPlayer.position = glm::vec3(
+        static_cast<float>(spawnX),
+        groundTopY + gPlayer.halfSize.y + 2.0f,
+        static_cast<float>(spawnZ)
+    );
 
-        float groundTop = (topY >= 0) ? ((float)topY - CY + 0.5f) : 0.0f;
-        gPlayer.position = glm::vec3((float)sx - CX,
-                                     groundTop + gPlayer.halfSize.y + voxel_physics::EPS,
-                                     (float)sz - CZ);
-        gPlayer.velocity = glm::vec3(0.0f);
-        gPlayer.onGround = true;
+    gPlayer.velocity = glm::vec3(0.0f);
+    gPlayer.onGround = false;
+    camera.Position = gPlayer.eyePosition();
 
-        camera.Position = gPlayer.eyePosition();
-    }
+    gWorld.updateStreaming(gPlayer.position, LOAD_RADIUS, UNLOAD_RADIUS);
 
-    // Initial mesh
-    gMesh = buildVisibleFaceMesh(gWorld);
+    // 很重要：把 lastFrame 設成現在，避免第一幀 dt 過大
+    lastFrame = static_cast<float>(glfwGetTime());
 
-    glGenVertexArrays(1, &gMeshVAO);
-    glGenBuffers(1, &gMeshVBO);
-
-    glBindVertexArray(gMeshVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, gMeshVBO);
-    uploadMeshToGPU();
-
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
-    glEnableVertexAttribArray(2);
-
-    // Light cubes VAO/VBO (positions only)
-    float lampCubeVertices[] = {
-        -0.5f,-0.5f,-0.5f,  0.5f,-0.5f,-0.5f,  0.5f, 0.5f,-0.5f,
-         0.5f, 0.5f,-0.5f, -0.5f, 0.5f,-0.5f, -0.5f,-0.5f,-0.5f,
-
-        -0.5f,-0.5f, 0.5f,  0.5f,-0.5f, 0.5f,  0.5f, 0.5f, 0.5f,
-         0.5f, 0.5f, 0.5f, -0.5f, 0.5f, 0.5f, -0.5f,-0.5f, 0.5f,
-
-        -0.5f, 0.5f, 0.5f, -0.5f, 0.5f,-0.5f, -0.5f,-0.5f,-0.5f,
-        -0.5f,-0.5f,-0.5f, -0.5f,-0.5f, 0.5f, -0.5f, 0.5f, 0.5f,
-
-         0.5f, 0.5f, 0.5f,  0.5f, 0.5f,-0.5f,  0.5f,-0.5f,-0.5f,
-         0.5f,-0.5f,-0.5f,  0.5f,-0.5f, 0.5f,  0.5f, 0.5f, 0.5f,
-
-        -0.5f,-0.5f,-0.5f,  0.5f,-0.5f,-0.5f,  0.5f,-0.5f, 0.5f,
-         0.5f,-0.5f, 0.5f, -0.5f,-0.5f, 0.5f, -0.5f,-0.5f,-0.5f,
-
-        -0.5f, 0.5f,-0.5f,  0.5f, 0.5f,-0.5f,  0.5f, 0.5f, 0.5f,
-         0.5f, 0.5f, 0.5f, -0.5f, 0.5f, 0.5f, -0.5f, 0.5f,-0.5f
-    };
-
-    unsigned int lightCubeVAO, lightCubeVBO;
-    glGenVertexArrays(1, &lightCubeVAO);
-    glGenBuffers(1, &lightCubeVBO);
-
-    glBindVertexArray(lightCubeVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, lightCubeVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(lampCubeVertices), lampCubeVertices, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-
-    // ----------------------
-    // Day/Night orbit (simple ring in a plane)
-    // ----------------------
     const glm::vec3 orbitCenter(0.0f, 0.0f, 0.0f);
     const float orbitRadius = 120.0f;
-    const float orbitHeightBias = 20.0f;
-
     const float dayLengthSec = 60.0f;
     const float omega = 6.28318530718f / dayLengthSec;
-
-    // Orbit plane spanned by Up (Y) and a diagonal between X and Z
     const glm::vec3 orbitUp(0.0f, 1.0f, 0.0f);
     const glm::vec3 orbitDiagXZ = glm::normalize(glm::vec3(1.0f, 0.0f, 1.0f));
 
-    while (!glfwWindowShouldClose(window))
-    {
-        float currentFrame = (float)glfwGetTime();
+    while (!glfwWindowShouldClose(window)) {
+        const float currentFrame = static_cast<float>(glfwGetTime());
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
+        deltaTime = std::min(deltaTime, 1.0f / 30.0f);
+
         processInput(window);
 
-        // --- Player control + physics ---
-        {
-            glm::vec3 forward(camera.Front.x, 0.0f, camera.Front.z);
-            float f2 = glm::dot(forward, forward);
-            if (f2 < 1e-8f) forward = glm::vec3(0.0f, 0.0f, -1.0f);
-            else forward /= std::sqrt(f2);
+        glm::vec3 forward(camera.Front.x, 0.0f, camera.Front.z);
+        float f2 = glm::dot(forward, forward);
+        if (f2 < 1e-8f) forward = glm::vec3(0.0f, 0.0f, -1.0f);
+        else forward /= std::sqrt(f2);
 
-            glm::vec3 right(camera.Right.x, 0.0f, camera.Right.z);
-            float r2 = glm::dot(right, right);
-            if (r2 < 1e-8f) right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
-            else right /= std::sqrt(r2);
+        glm::vec3 right(camera.Right.x, 0.0f, camera.Right.z);
+        float r2 = glm::dot(right, right);
+        if (r2 < 1e-8f) right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
+        else right /= std::sqrt(r2);
 
-            glm::vec3 wish(0.0f);
-            if (gInput.forward)  wish += forward;
-            if (gInput.backward) wish -= forward;
-            if (gInput.right)    wish += right;
-            if (gInput.left)     wish -= right;
+        glm::vec3 wish(0.0f);
+        if (gInput.forward)  wish += forward;
+        if (gInput.backward) wish -= forward;
+        if (gInput.right)    wish += right;
+        if (gInput.left)     wish -= right;
 
-            float w2 = glm::dot(wish, wish);
-            if (w2 > 1e-8f) wish /= std::sqrt(w2);
+        const float w2 = glm::dot(wish, wish);
+        if (w2 > 1e-8f) wish /= std::sqrt(w2);
 
-            gPlayer.applyControl(wish, gInput.jumpPressed, gInput.sprint, deltaTime);
-            gPlayer.step(gWorld, deltaTime);
-            camera.Position = gPlayer.eyePosition();
-        }
+        gPlayer.applyControl(wish, gInput.jumpPressed, gInput.sprint, deltaTime);
+        gPlayer.step(gWorld, deltaTime);
+        camera.Position = gPlayer.eyePosition();
 
-        if (gMeshDirty) {
-            rebuildWorldMesh();
-            gMeshDirty = false;
-        }
+        gWorld.updateStreaming(gPlayer.position, LOAD_RADIUS, UNLOAD_RADIUS);
 
         glClearColor(0.07f, 0.07f, 0.10f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // ----- Orbit update -----
-        float t = (float)glfwGetTime();
-        float angle = t * omega;
+        const float angle = currentFrame * omega;
+        const glm::vec3 sunOffset = orbitRadius * (std::cos(angle) * orbitDiagXZ + std::sin(angle) * orbitUp);
+        const glm::vec3 moonOffset = -sunOffset;
 
-        // Simple ring motion in the (orbitDiagXZ, orbitUp) plane
-        glm::vec3 sunOffset  = orbitRadius * (std::cos(angle) * orbitDiagXZ + std::sin(angle) * orbitUp);
-        glm::vec3 moonOffset = -sunOffset;
+        const glm::vec3 sunRayDir = glm::normalize(-sunOffset);
+        const glm::vec3 moonRayDir = glm::normalize(-moonOffset);
 
-        // Directional ray directions (light -> scene)
-        glm::vec3 sunRayDir  = glm::normalize(-sunOffset);
-        glm::vec3 moonRayDir = glm::normalize(-moonOffset);
+        const float sunUp = std::max(0.0f, -sunRayDir.y);
+        const float moonUp = std::max(0.0f, -moonRayDir.y);
+        const float sunStrength = sunUp * sunUp;
+        const float moonStrength = std::sqrt(moonUp);
 
-        // Simple day/night gating by "points downward"
-        float sunUp  = std::max(0.0f, -sunRayDir.y);
-        float moonUp = std::max(0.0f, -moonRayDir.y);
+        const glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom),
+                                                      static_cast<float>(SCR_WIDTH) / static_cast<float>(SCR_HEIGHT),
+                                                      0.1f, 500.0f);
+        const glm::mat4 view = camera.GetViewMatrix();
 
-        float sunStrength  = sunUp * sunUp;
-        float moonStrength = std::sqrt(moonUp);
-
-        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom),
-                                                (float)SCR_WIDTH / (float)SCR_HEIGHT,
-                                                0.1f, 500.0f);
-        glm::mat4 view = camera.GetViewMatrix();
-
-        // ----- World mesh lighting -----
         lightingShader.use();
-
         lightingShader.setInt("material.diffuse", 0);
         lightingShader.setInt("material.specular", 1);
         lightingShader.setFloat("material.shininess", 64.0f);
 
-        // Sun dir light
         lightingShader.setVec3("sunLight.direction", sunRayDir);
-        lightingShader.setVec3("sunLight.ambient",   glm::vec3(0.02f, 0.015f, 0.010f) * sunStrength);
-        lightingShader.setVec3("sunLight.diffuse",   glm::vec3(1.00f, 0.85f, 0.65f)  * (1.25f * sunStrength));
-        lightingShader.setVec3("sunLight.specular",  glm::vec3(1.00f, 0.95f, 0.85f)  * (1.10f * sunStrength));
+        lightingShader.setVec3("sunLight.ambient",  glm::vec3(0.02f, 0.015f, 0.010f) * sunStrength);
+        lightingShader.setVec3("sunLight.diffuse",  glm::vec3(1.00f, 0.85f, 0.65f) * (1.25f * sunStrength));
+        lightingShader.setVec3("sunLight.specular", glm::vec3(1.00f, 0.95f, 0.85f) * (1.10f * sunStrength));
 
-        // Moon dir light (also carries a small base ambient so nights aren't pitch black)
-        glm::vec3 baseAmbient(0.012f);
         lightingShader.setVec3("moonLight.direction", moonRayDir);
-        lightingShader.setVec3("moonLight.ambient",   baseAmbient + glm::vec3(0.008f, 0.010f, 0.020f) * moonStrength);
-        lightingShader.setVec3("moonLight.diffuse",   glm::vec3(0.25f,  0.35f,  0.90f) * (1.20f * moonStrength));
-        lightingShader.setVec3("moonLight.specular",  glm::vec3(0.30f,  0.40f,  1.00f) * (1.10f * moonStrength));
+        lightingShader.setVec3("moonLight.ambient",  glm::vec3(0.012f) + glm::vec3(0.008f, 0.010f, 0.020f) * moonStrength);
+        lightingShader.setVec3("moonLight.diffuse",  glm::vec3(0.25f, 0.35f, 0.90f) * (1.20f * moonStrength));
+        lightingShader.setVec3("moonLight.specular", glm::vec3(0.30f, 0.40f, 1.00f) * (1.10f * moonStrength));
 
-        // Flashlight (spotLight)
-        lightingShader.setVec3("spotLight.position",  camera.Position);
+        lightingShader.setVec3("spotLight.position", camera.Position);
         lightingShader.setVec3("spotLight.direction", camera.Front);
-        lightingShader.setVec3("spotLight.ambient",   0.0f, 0.0f, 0.0f);
-        lightingShader.setVec3("spotLight.diffuse",   1.0f, 1.0f, 1.0f);
-        lightingShader.setVec3("spotLight.specular",  1.0f, 1.0f, 1.0f);
-        lightingShader.setFloat("spotLight.constant",  1.0f);
-        lightingShader.setFloat("spotLight.linear",    0.09f);
+        lightingShader.setVec3("spotLight.ambient", 0.0f, 0.0f, 0.0f);
+        lightingShader.setVec3("spotLight.diffuse", 1.0f, 1.0f, 1.0f);
+        lightingShader.setVec3("spotLight.specular", 1.0f, 1.0f, 1.0f);
+        lightingShader.setFloat("spotLight.constant", 1.0f);
+        lightingShader.setFloat("spotLight.linear", 0.09f);
         lightingShader.setFloat("spotLight.quadratic", 0.032f);
-        lightingShader.setFloat("spotLight.cutOff",      glm::cos(glm::radians(12.5f)));
+        lightingShader.setFloat("spotLight.cutOff", glm::cos(glm::radians(12.5f)));
         lightingShader.setFloat("spotLight.outerCutOff", glm::cos(glm::radians(15.0f)));
 
         lightingShader.setVec3("viewPos", camera.Position);
@@ -505,51 +239,42 @@ int main()
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, specularMap);
 
-        glBindVertexArray(gMeshVAO);
-        glDrawArrays(GL_TRIANGLES, 0, gMeshVertexCount);
+        gWorld.render();
 
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
 
-    glDeleteVertexArrays(1, &gMeshVAO);
-    glDeleteBuffers(1, &gMeshVBO);
-    glDeleteVertexArrays(1, &lightCubeVAO);
-    glDeleteBuffers(1, &lightCubeVBO);
-
+    gWorld.clear();
     glfwTerminate();
     return 0;
 }
 
-// ------------------------
-// input & callbacks
-// ------------------------
-static void processInput(GLFWwindow* window)
-{
+static void processInput(GLFWwindow* window) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
 
-    gInput.forward  = glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS;
+    gInput.forward = glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS;
     gInput.backward = glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS;
-    gInput.left     = glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS;
-    gInput.right    = glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
-
+    gInput.left = glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS;
+    gInput.right = glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
     gInput.sprint = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
 
-    bool spaceDown = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
+    const bool spaceDown = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
     gInput.jumpPressed = spaceDown && !gSpaceWasDown;
     gSpaceWasDown = spaceDown;
 }
 
-static void framebuffer_size_callback(GLFWwindow* window, int width, int height)
-{
+static void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
+    (void)window;
     glViewport(0, 0, width, height);
 }
 
-static void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
-{
-    float xpos = (float)xposIn;
-    float ypos = (float)yposIn;
+static void mouse_callback(GLFWwindow* window, double xposIn, double yposIn) {
+    (void)window;
+
+    const float xpos = static_cast<float>(xposIn);
+    const float ypos = static_cast<float>(yposIn);
 
     if (firstMouse) {
         lastX = xpos;
@@ -557,38 +282,34 @@ static void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
         firstMouse = false;
     }
 
-    float xoffset = xpos - lastX;
-    float yoffset = lastY - ypos;
-
+    const float xoffset = xpos - lastX;
+    const float yoffset = lastY - ypos;
     lastX = xpos;
     lastY = ypos;
 
     camera.ProcessMouseMovement(xoffset, yoffset);
 }
 
-static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
-{
+static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
+    (void)window;
     (void)xoffset;
-    camera.ProcessMouseScroll((float)yoffset);
+    camera.ProcessMouseScroll(static_cast<float>(yoffset));
 }
 
-static void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
-{
-    (void)window; (void)mods;
+static void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
+    (void)window;
+    (void)mods;
+
     if (action != GLFW_PRESS) return;
 
     if (button == GLFW_MOUSE_BUTTON_LEFT) {
-        if (editBlock(false)) gMeshDirty = true;
+        editBlock(false);
     } else if (button == GLFW_MOUSE_BUTTON_RIGHT) {
-        if (editBlock(true)) gMeshDirty = true;
+        editBlock(true);
     }
 }
 
-// ------------------------
-// texture loading
-// ------------------------
-static unsigned int loadTexture(const char* path)
-{
+static unsigned int loadTexture(const char* path) {
     unsigned int textureID;
     glGenTextures(1, &textureID);
 
@@ -596,16 +317,14 @@ static unsigned int loadTexture(const char* path)
     stbi_set_flip_vertically_on_load(true);
     unsigned char* data = stbi_load(path, &width, &height, &nrComponents, 0);
 
-    if (data)
-    {
+    if (data) {
         GLenum format = GL_RGB;
         if (nrComponents == 1) format = GL_RED;
         else if (nrComponents == 3) format = GL_RGB;
         else if (nrComponents == 4) format = GL_RGBA;
 
         glBindTexture(GL_TEXTURE_2D, textureID);
-        glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0,
-                     format, GL_UNSIGNED_BYTE, data);
+        glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
         glGenerateMipmap(GL_TEXTURE_2D);
 
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -614,9 +333,7 @@ static unsigned int loadTexture(const char* path)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
         stbi_image_free(data);
-    }
-    else
-    {
+    } else {
         std::cout << "Texture failed to load at path: " << path << "\n";
         stbi_image_free(data);
     }
