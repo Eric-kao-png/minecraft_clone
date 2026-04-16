@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 #include "world/ChunkManager.h"
 #include "world/TerrainGenerator.h"
+#include "world/WorldMesher.h" // 引入新模組
 
 class VoxelWorld {
 public:
@@ -34,7 +35,5 @@ public:
 private:
     TerrainGenerator generator_;
     ChunkManager chunkManager_;
-
-    // Meshing 邏輯 (未來可以獨立成 WorldMesher)
-    void buildChunkMesh(Chunk& chunk) const;
+    WorldMesher mesher_; // 專屬建模師
 };
