@@ -30,6 +30,8 @@ add_executable(venture
         src/world/ChunkManager.cpp
         include/world/WorldMesher.h
         src/world/WorldMesher.cpp
+        include/world/WorldRaycaster.h
+        src/world/WorldRaycaster.cpp
 )
 
 target_link_libraries(venture
