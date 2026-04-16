@@ -11,28 +11,19 @@
 
 #include "physics/Player.h"
 #include "world/VoxelWorld.h"
+#include "world/Chunk.h"
 
 #include <algorithm>
 #include <cmath>
 #include <iostream>
 
-static void framebuffer_size_callback(GLFWwindow* window, int width, int height);
-static void mouse_callback(GLFWwindow* window, double xpos, double ypos);
-static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
-static void mouse_button_callback(GLFWwindow* window, int button, int action, int mods);
-static void processInput(GLFWwindow* window);
-static unsigned int loadTexture(const char* path);
-static bool editBlock(bool place);
-
+// --- 全域變數與常數宣告 ---
 static const unsigned int SCR_WIDTH = 1280;
 static const unsigned int SCR_HEIGHT = 720;
-
 static const int LOAD_RADIUS = 4;
 static const int UNLOAD_RADIUS = 6;
 
-static Camera camera(glm::vec3(0.0f, 45.0f, 0.0f),
-                     glm::vec3(0.0f, 1.0f, 0.0f),
-                     -90.0f, -20.0f);
+static Camera camera(glm::vec3(0.0f, 45.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f), -90.0f, -20.0f);
 static float lastX = SCR_WIDTH / 2.0f;
 static float lastY = SCR_HEIGHT / 2.0f;
 static bool firstMouse = true;
@@ -51,40 +42,86 @@ struct InputState {
     bool sprint = false;
     bool jumpPressed = false;
 };
-
 static InputState gInput;
 static bool gSpaceWasDown = false;
 
-static bool editBlock(bool place) {
-    VoxelWorld::RaycastHit hit;
-    if (!gWorld.raycast(camera.Position, camera.Front, 6.0f, 0.10f, hit)) {
-        return false;
+// --- 函式前置宣告 ---
+static GLFWwindow* initializeWindow();
+static void initializeGameWorld();
+static void updatePlayerMovement(float dt);
+static void setupLightingAndCamera(Shader& shader, float currentFrame);
+static bool editBlock(bool place);
+static void processInput(GLFWwindow* window);
+static unsigned int loadTexture(const char* path);
+
+// 回呼函式
+static void framebuffer_size_callback(GLFWwindow* window, int width, int height);
+static void mouse_callback(GLFWwindow* window, double xpos, double ypos);
+static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
+static void mouse_button_callback(GLFWwindow* window, int button, int action, int mods);
+
+
+// ============================================================================
+// 主程式入口
+// ============================================================================
+int main() {
+    GLFWwindow* window = initializeWindow();
+    if (!window) return -1;
+
+    Shader lightingShader("../shaders/colors.vs", "../shaders/colors.fs");
+    const unsigned int diffuseMap = loadTexture("../resources/container2.png");
+    const unsigned int specularMap = loadTexture("../resources/container2_specular.png");
+
+    initializeGameWorld();
+
+    // 避免第一幀 dt 過大
+    lastFrame = static_cast<float>(glfwGetTime());
+
+    // --- 遊戲主迴圈 ---
+    while (!glfwWindowShouldClose(window)) {
+        const float currentFrame = static_cast<float>(glfwGetTime());
+        deltaTime = std::min(currentFrame - lastFrame, 1.0f / 30.0f); // 限制最大 dt
+        lastFrame = currentFrame;
+
+        // 1. 處理輸入
+        processInput(window);
+
+        // 2. 更新邏輯與物理
+        updatePlayerMovement(deltaTime);
+        gWorld.updateStreaming(gPlayer.position, LOAD_RADIUS, UNLOAD_RADIUS);
+
+        // 3. 畫面清理
+        glClearColor(0.07f, 0.07f, 0.10f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        // 4. 設定 Shader 變數 (光照、相機矩陣)
+        setupLightingAndCamera(lightingShader, currentFrame);
+
+        // 5. 綁定貼圖並渲染世界
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, diffuseMap);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, specularMap);
+
+        gWorld.render();
+
+        // 6. 交換緩衝區
+        glfwSwapBuffers(window);
+        glfwPollEvents();
     }
 
-    if (!place) {
-        gWorld.setBlockGlobal(hit.block.x, hit.block.y, hit.block.z, false);
-        return true;
-    }
-
-    const glm::ivec3 target = hit.block + hit.normal;
-    if (target.y < 0 || target.y >= VoxelWorld::CHUNK_SIZE_Y) {
-        return false;
-    }
-    if (gWorld.hasBlockGlobal(target.x, target.y, target.z)) {
-        return false;
-    }
-
-    const voxel_physics::AABB playerBox = gPlayer.aabb();
-    const voxel_physics::AABB blockBox = voxel_physics::blockAABB(target.x, target.y, target.z);
-    if (voxel_physics::overlap(playerBox, blockBox)) {
-        return false;
-    }
-
-    gWorld.setBlockGlobal(target.x, target.y, target.z, true);
-    return true;
+    // --- 清理資源 ---
+    gWorld.clear();
+    glfwTerminate();
+    return 0;
 }
 
-int main() {
+
+// ============================================================================
+// 模組化函式實作
+// ============================================================================
+
+static GLFWwindow* initializeWindow() {
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -97,7 +134,7 @@ int main() {
     if (window == nullptr) {
         std::cout << "Failed to create GLFW window\n";
         glfwTerminate();
-        return -1;
+        return nullptr;
     }
     glfwMakeContextCurrent(window);
 
@@ -109,16 +146,14 @@ int main() {
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         std::cout << "Failed to initialize GLAD\n";
-        return -1;
+        return nullptr;
     }
 
     glEnable(GL_DEPTH_TEST);
+    return window;
+}
 
-    Shader lightingShader("../shaders/colors.vs", "../shaders/colors.fs");
-
-    const unsigned int diffuseMap = loadTexture("../resources/container2.png");
-    const unsigned int specularMap = loadTexture("../resources/container2_specular.png");
-
+static void initializeGameWorld() {
     gWorld.setSeed(2026);
 
     const int spawnX = 0;
@@ -126,130 +161,119 @@ int main() {
     const int surfaceY = gWorld.sampleSurfaceY(spawnX, spawnZ);
     const float groundTopY = static_cast<float>(surfaceY) + 0.5f;
 
-    // 先出生在地表上方一點，避免一開始半卡地面
-    gPlayer.position = glm::vec3(
-        static_cast<float>(spawnX),
-        groundTopY + gPlayer.halfSize.y + 2.0f,
-        static_cast<float>(spawnZ)
-    );
-
+    // 出生在地表上方，給予自然落下的效果
+    gPlayer.position = glm::vec3(static_cast<float>(spawnX), groundTopY + gPlayer.halfSize.y + 2.0f, static_cast<float>(spawnZ));
     gPlayer.velocity = glm::vec3(0.0f);
     gPlayer.onGround = false;
+
     camera.Position = gPlayer.eyePosition();
-
     gWorld.updateStreaming(gPlayer.position, LOAD_RADIUS, UNLOAD_RADIUS);
+}
 
-    // 很重要：把 lastFrame 設成現在，避免第一幀 dt 過大
-    lastFrame = static_cast<float>(glfwGetTime());
+static void updatePlayerMovement(float dt) {
+    glm::vec3 forward(camera.Front.x, 0.0f, camera.Front.z);
+    float f2 = glm::dot(forward, forward);
+    if (f2 < 1e-8f) forward = glm::vec3(0.0f, 0.0f, -1.0f);
+    else forward /= std::sqrt(f2);
 
-    const glm::vec3 orbitCenter(0.0f, 0.0f, 0.0f);
+    glm::vec3 right(camera.Right.x, 0.0f, camera.Right.z);
+    float r2 = glm::dot(right, right);
+    if (r2 < 1e-8f) right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
+    else right /= std::sqrt(r2);
+
+    glm::vec3 wish(0.0f);
+    if (gInput.forward)  wish += forward;
+    if (gInput.backward) wish -= forward;
+    if (gInput.right)    wish += right;
+    if (gInput.left)     wish -= right;
+
+    const float w2 = glm::dot(wish, wish);
+    if (w2 > 1e-8f) wish /= std::sqrt(w2);
+
+    gPlayer.applyControl(wish, gInput.jumpPressed, gInput.sprint, dt);
+    gPlayer.step(gWorld, dt);
+    camera.Position = gPlayer.eyePosition();
+}
+
+static void setupLightingAndCamera(Shader& shader, float currentFrame) {
+    // --- 晝夜軌道計算 ---
     const float orbitRadius = 120.0f;
     const float dayLengthSec = 60.0f;
     const float omega = 6.28318530718f / dayLengthSec;
     const glm::vec3 orbitUp(0.0f, 1.0f, 0.0f);
     const glm::vec3 orbitDiagXZ = glm::normalize(glm::vec3(1.0f, 0.0f, 1.0f));
 
-    while (!glfwWindowShouldClose(window)) {
-        const float currentFrame = static_cast<float>(glfwGetTime());
-        deltaTime = currentFrame - lastFrame;
-        lastFrame = currentFrame;
+    const float angle = currentFrame * omega;
+    const glm::vec3 sunOffset = orbitRadius * (std::cos(angle) * orbitDiagXZ + std::sin(angle) * orbitUp);
+    const glm::vec3 moonOffset = -sunOffset;
 
-        deltaTime = std::min(deltaTime, 1.0f / 30.0f);
+    const glm::vec3 sunRayDir = glm::normalize(-sunOffset);
+    const glm::vec3 moonRayDir = glm::normalize(-moonOffset);
 
-        processInput(window);
+    const float sunUp = std::max(0.0f, -sunRayDir.y);
+    const float moonUp = std::max(0.0f, -moonRayDir.y);
+    const float sunStrength = sunUp * sunUp;
+    const float moonStrength = std::sqrt(moonUp);
 
-        glm::vec3 forward(camera.Front.x, 0.0f, camera.Front.z);
-        float f2 = glm::dot(forward, forward);
-        if (f2 < 1e-8f) forward = glm::vec3(0.0f, 0.0f, -1.0f);
-        else forward /= std::sqrt(f2);
+    // --- 相機矩陣 ---
+    const glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom),
+                                                  static_cast<float>(SCR_WIDTH) / static_cast<float>(SCR_HEIGHT),
+                                                  0.1f, 500.0f);
+    const glm::mat4 view = camera.GetViewMatrix();
 
-        glm::vec3 right(camera.Right.x, 0.0f, camera.Right.z);
-        float r2 = glm::dot(right, right);
-        if (r2 < 1e-8f) right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
-        else right /= std::sqrt(r2);
+    // --- Shader 設定 ---
+    shader.use();
+    shader.setInt("material.diffuse", 0);
+    shader.setInt("material.specular", 1);
+    shader.setFloat("material.shininess", 64.0f);
 
-        glm::vec3 wish(0.0f);
-        if (gInput.forward)  wish += forward;
-        if (gInput.backward) wish -= forward;
-        if (gInput.right)    wish += right;
-        if (gInput.left)     wish -= right;
+    glm::vec3 minAmbient(0.03f, 0.03f, 0.04f); // 基礎環境光
 
-        const float w2 = glm::dot(wish, wish);
-        if (w2 > 1e-8f) wish /= std::sqrt(w2);
+    shader.setVec3("sunLight.direction", sunRayDir);
+    shader.setVec3("sunLight.ambient", minAmbient + glm::vec3(0.02f, 0.015f, 0.010f) * sunStrength);
+    shader.setVec3("sunLight.diffuse",  glm::vec3(1.00f, 0.85f, 0.65f) * (1.25f * sunStrength));
+    shader.setVec3("sunLight.specular", glm::vec3(1.00f, 0.95f, 0.85f) * (1.10f * sunStrength));
 
-        gPlayer.applyControl(wish, gInput.jumpPressed, gInput.sprint, deltaTime);
-        gPlayer.step(gWorld, deltaTime);
-        camera.Position = gPlayer.eyePosition();
+    shader.setVec3("moonLight.direction", moonRayDir);
+    shader.setVec3("moonLight.ambient", minAmbient + glm::vec3(0.012f) + glm::vec3(0.008f, 0.010f, 0.020f) * moonStrength);
+    shader.setVec3("moonLight.diffuse",  glm::vec3(0.25f, 0.35f, 0.90f) * (1.20f * moonStrength));
+    shader.setVec3("moonLight.specular", glm::vec3(0.30f, 0.40f, 1.00f) * (1.10f * moonStrength));
 
-        gWorld.updateStreaming(gPlayer.position, LOAD_RADIUS, UNLOAD_RADIUS);
+    shader.setVec3("spotLight.position", camera.Position);
+    shader.setVec3("spotLight.direction", camera.Front);
+    shader.setFloat("spotLight.constant", 1.0f);
+    shader.setFloat("spotLight.linear", 0.09f);
+    shader.setFloat("spotLight.quadratic", 0.032f);
+    shader.setFloat("spotLight.cutOff", glm::cos(glm::radians(12.5f)));
+    shader.setFloat("spotLight.outerCutOff", glm::cos(glm::radians(15.0f)));
 
-        glClearColor(0.07f, 0.07f, 0.10f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    shader.setVec3("viewPos", camera.Position);
+    shader.setMat4("projection", projection);
+    shader.setMat4("view", view);
+    shader.setMat4("model", glm::mat4(1.0f));
+}
 
-        const float angle = currentFrame * omega;
-        const glm::vec3 sunOffset = orbitRadius * (std::cos(angle) * orbitDiagXZ + std::sin(angle) * orbitUp);
-        const glm::vec3 moonOffset = -sunOffset;
+// ============================================================================
+// 輔助邏輯與回呼函式
+// ============================================================================
 
-        const glm::vec3 sunRayDir = glm::normalize(-sunOffset);
-        const glm::vec3 moonRayDir = glm::normalize(-moonOffset);
+static bool editBlock(bool place) {
+    VoxelWorld::RaycastHit hit;
+    if (!gWorld.raycast(camera.Position, camera.Front, 6.0f, 0.10f, hit)) return false;
 
-        const float sunUp = std::max(0.0f, -sunRayDir.y);
-        const float moonUp = std::max(0.0f, -moonRayDir.y);
-        const float sunStrength = sunUp * sunUp;
-        const float moonStrength = std::sqrt(moonUp);
-
-        const glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom),
-                                                      static_cast<float>(SCR_WIDTH) / static_cast<float>(SCR_HEIGHT),
-                                                      0.1f, 500.0f);
-        const glm::mat4 view = camera.GetViewMatrix();
-
-        lightingShader.use();
-        lightingShader.setInt("material.diffuse", 0);
-        lightingShader.setInt("material.specular", 1);
-        lightingShader.setFloat("material.shininess", 64.0f);
-
-        glm::vec3 minAmbient(0.03f, 0.03f, 0.04f);
-
-        lightingShader.setVec3("sunLight.direction", sunRayDir);
-        lightingShader.setVec3("sunLight.ambient", minAmbient + glm::vec3(0.02f, 0.015f, 0.010f) * sunStrength);
-        lightingShader.setVec3("sunLight.diffuse",  glm::vec3(1.00f, 0.85f, 0.65f) * (1.25f * sunStrength));
-        lightingShader.setVec3("sunLight.specular", glm::vec3(1.00f, 0.95f, 0.85f) * (1.10f * sunStrength));
-
-        lightingShader.setVec3("moonLight.direction", moonRayDir);
-        lightingShader.setVec3("moonLight.ambient", minAmbient + glm::vec3(0.012f) + glm::vec3(0.008f, 0.010f, 0.020f) * moonStrength);
-        lightingShader.setVec3("moonLight.diffuse",  glm::vec3(0.25f, 0.35f, 0.90f) * (1.20f * moonStrength));
-        lightingShader.setVec3("moonLight.specular", glm::vec3(0.30f, 0.40f, 1.00f) * (1.10f * moonStrength));
-
-        lightingShader.setVec3("spotLight.position", camera.Position);
-        lightingShader.setVec3("spotLight.direction", camera.Front);
-        // lightingShader.setVec3("spotLight.ambient", 0.0f, 0.0f, 0.0f);
-        // lightingShader.setVec3("spotLight.diffuse", 1.0f, 1.0f, 1.0f);
-        // lightingShader.setVec3("spotLight.specular", 1.0f, 1.0f, 1.0f);
-        lightingShader.setFloat("spotLight.constant", 1.0f);
-        lightingShader.setFloat("spotLight.linear", 0.09f);
-        lightingShader.setFloat("spotLight.quadratic", 0.032f);
-        lightingShader.setFloat("spotLight.cutOff", glm::cos(glm::radians(12.5f)));
-        lightingShader.setFloat("spotLight.outerCutOff", glm::cos(glm::radians(15.0f)));
-
-        lightingShader.setVec3("viewPos", camera.Position);
-        lightingShader.setMat4("projection", projection);
-        lightingShader.setMat4("view", view);
-        lightingShader.setMat4("model", glm::mat4(1.0f));
-
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, diffuseMap);
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, specularMap);
-
-        gWorld.render();
-
-        glfwSwapBuffers(window);
-        glfwPollEvents();
+    if (!place) {
+        gWorld.setBlockGlobal(hit.block.x, hit.block.y, hit.block.z, false);
+        return true;
     }
 
-    gWorld.clear();
-    glfwTerminate();
-    return 0;
+    const glm::ivec3 target = hit.block + hit.normal;
+    if (target.y < 0 || target.y >= Chunk::SIZE_Y) return false;
+    if (gWorld.hasBlockGlobal(target.x, target.y, target.z)) return false;
+
+    if (voxel_physics::overlap(gPlayer.aabb(), voxel_physics::blockAABB(target.x, target.y, target.z))) return false;
+
+    gWorld.setBlockGlobal(target.x, target.y, target.z, true);
+    return true;
 }
 
 static void processInput(GLFWwindow* window) {
@@ -274,41 +298,25 @@ static void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 
 static void mouse_callback(GLFWwindow* window, double xposIn, double yposIn) {
     (void)window;
-
     const float xpos = static_cast<float>(xposIn);
     const float ypos = static_cast<float>(yposIn);
 
-    if (firstMouse) {
-        lastX = xpos;
-        lastY = ypos;
-        firstMouse = false;
-    }
+    if (firstMouse) { lastX = xpos; lastY = ypos; firstMouse = false; }
 
-    const float xoffset = xpos - lastX;
-    const float yoffset = lastY - ypos;
-    lastX = xpos;
-    lastY = ypos;
-
-    camera.ProcessMouseMovement(xoffset, yoffset);
+    camera.ProcessMouseMovement(xpos - lastX, lastY - ypos);
+    lastX = xpos; lastY = ypos;
 }
 
 static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
-    (void)window;
-    (void)xoffset;
+    (void)window; (void)xoffset;
     camera.ProcessMouseScroll(static_cast<float>(yoffset));
 }
 
 static void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
-    (void)window;
-    (void)mods;
-
+    (void)window; (void)mods;
     if (action != GLFW_PRESS) return;
-
-    if (button == GLFW_MOUSE_BUTTON_LEFT) {
-        editBlock(false);
-    } else if (button == GLFW_MOUSE_BUTTON_RIGHT) {
-        editBlock(true);
-    }
+    if (button == GLFW_MOUSE_BUTTON_LEFT) editBlock(false);
+    else if (button == GLFW_MOUSE_BUTTON_RIGHT) editBlock(true);
 }
 
 static unsigned int loadTexture(const char* path) {
@@ -320,11 +328,7 @@ static unsigned int loadTexture(const char* path) {
     unsigned char* data = stbi_load(path, &width, &height, &nrComponents, 0);
 
     if (data) {
-        GLenum format = GL_RGB;
-        if (nrComponents == 1) format = GL_RED;
-        else if (nrComponents == 3) format = GL_RGB;
-        else if (nrComponents == 4) format = GL_RGBA;
-
+        GLenum format = (nrComponents == 1) ? GL_RED : (nrComponents == 3) ? GL_RGB : GL_RGBA;
         glBindTexture(GL_TEXTURE_2D, textureID);
         glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
         glGenerateMipmap(GL_TEXTURE_2D);
@@ -333,12 +337,10 @@ static unsigned int loadTexture(const char* path) {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
         stbi_image_free(data);
     } else {
         std::cout << "Texture failed to load at path: " << path << "\n";
         stbi_image_free(data);
     }
-
     return textureID;
 }

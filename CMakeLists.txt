@@ -22,6 +22,8 @@ add_executable(venture
         include/physics/VoxelPhysics.h
         include/physics/PhysicsBody.h
         include/physics/Player.h
+        include/world/Chunk.h
+        src/world/Chunk.cpp
 )
 
 target_link_libraries(venture
