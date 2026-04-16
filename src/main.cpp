@@ -208,21 +208,23 @@ int main() {
         lightingShader.setInt("material.specular", 1);
         lightingShader.setFloat("material.shininess", 64.0f);
 
+        glm::vec3 minAmbient(0.03f, 0.03f, 0.04f);
+
         lightingShader.setVec3("sunLight.direction", sunRayDir);
-        lightingShader.setVec3("sunLight.ambient",  glm::vec3(0.02f, 0.015f, 0.010f) * sunStrength);
+        lightingShader.setVec3("sunLight.ambient", minAmbient + glm::vec3(0.02f, 0.015f, 0.010f) * sunStrength);
         lightingShader.setVec3("sunLight.diffuse",  glm::vec3(1.00f, 0.85f, 0.65f) * (1.25f * sunStrength));
         lightingShader.setVec3("sunLight.specular", glm::vec3(1.00f, 0.95f, 0.85f) * (1.10f * sunStrength));
 
         lightingShader.setVec3("moonLight.direction", moonRayDir);
-        lightingShader.setVec3("moonLight.ambient",  glm::vec3(0.012f) + glm::vec3(0.008f, 0.010f, 0.020f) * moonStrength);
+        lightingShader.setVec3("moonLight.ambient", minAmbient + glm::vec3(0.012f) + glm::vec3(0.008f, 0.010f, 0.020f) * moonStrength);
         lightingShader.setVec3("moonLight.diffuse",  glm::vec3(0.25f, 0.35f, 0.90f) * (1.20f * moonStrength));
         lightingShader.setVec3("moonLight.specular", glm::vec3(0.30f, 0.40f, 1.00f) * (1.10f * moonStrength));
 
         lightingShader.setVec3("spotLight.position", camera.Position);
         lightingShader.setVec3("spotLight.direction", camera.Front);
-        lightingShader.setVec3("spotLight.ambient", 0.0f, 0.0f, 0.0f);
-        lightingShader.setVec3("spotLight.diffuse", 1.0f, 1.0f, 1.0f);
-        lightingShader.setVec3("spotLight.specular", 1.0f, 1.0f, 1.0f);
+        // lightingShader.setVec3("spotLight.ambient", 0.0f, 0.0f, 0.0f);
+        // lightingShader.setVec3("spotLight.diffuse", 1.0f, 1.0f, 1.0f);
+        // lightingShader.setVec3("spotLight.specular", 1.0f, 1.0f, 1.0f);
         lightingShader.setFloat("spotLight.constant", 1.0f);
         lightingShader.setFloat("spotLight.linear", 0.09f);
         lightingShader.setFloat("spotLight.quadratic", 0.032f);
