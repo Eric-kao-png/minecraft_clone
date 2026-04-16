@@ -26,6 +26,8 @@ add_executable(venture
         src/world/Chunk.cpp
         include/world/TerrainGenerator.h
         src/world/TerrainGenerator.cpp
+        include/world/ChunkManager.h
+        src/world/ChunkManager.cpp
 )
 
 target_link_libraries(venture

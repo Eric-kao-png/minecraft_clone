@@ -60,87 +60,6 @@ static void pushVertex(std::vector<float>& out,
 
 } // namespace
 
-int VoxelWorld::floorDiv(int a, int b) {
-    int q = a / b;
-    int r = a % b;
-    if (r != 0 && ((r > 0) != (b > 0))) --q;
-    return q;
-}
-
-int VoxelWorld::positiveMod(int a, int b) {
-    int m = a % b;
-    if (m < 0) m += (b < 0 ? -b : b);
-    return m;
-}
-
-int VoxelWorld::worldToBlock(float v) { return static_cast<int>(std::floor(v + 0.5f)); }
-
-Chunk* VoxelWorld::getLoadedChunk(int cx, int cz) {
-    auto it = chunks_.find(ChunkCoord{cx, cz});
-    return (it == chunks_.end()) ? nullptr : it->second.get();
-}
-
-const Chunk* VoxelWorld::getLoadedChunk(int cx, int cz) const {
-    auto it = chunks_.find(ChunkCoord{cx, cz});
-    return (it == chunks_.end()) ? nullptr : it->second.get();
-}
-
-Chunk& VoxelWorld::getOrCreateChunk(int cx, int cz) {
-    auto [it, inserted] = chunks_.try_emplace(ChunkCoord{cx, cz}, nullptr);
-    if (inserted) {
-        it->second = std::make_unique<Chunk>(cx, cz);
-        generateChunk(*it->second);
-    }
-    return *it->second;
-}
-
-void VoxelWorld::setSeed(uint32_t seed) {
-    generator_.setSeed(seed); // 轉交給生成器處理
-}
-
-int VoxelWorld::sampleSurfaceY(int wx, int wz) const {
-    // 直接呼叫 generator_ 的介面
-    return generator_.sampleHeight(wx, wz);
-}
-bool VoxelWorld::hasBlockGlobal(int wx, int wy, int wz) const {
-    if (wy < 0 || wy >= Chunk::SIZE_Y) return false;
-    if (const Chunk* chunk = getLoadedChunk(floorDiv(wx, Chunk::SIZE_X), floorDiv(wz, Chunk::SIZE_Z)))
-        return chunk->at(positiveMod(wx, Chunk::SIZE_X), wy, positiveMod(wz, Chunk::SIZE_Z)) != 0;
-    return wy <= sampleSurfaceY(wx, wz);
-}
-
-void VoxelWorld::setBlockGlobal(int wx, int wy, int wz, bool solid) {
-    if (wy < 0 || wy >= Chunk::SIZE_Y) return;
-    int cx = floorDiv(wx, Chunk::SIZE_X), cz = floorDiv(wz, Chunk::SIZE_Z);
-    Chunk& chunk = getOrCreateChunk(cx, cz);
-    uint8_t newVal = solid ? 1u : 0u;
-    int lx = positiveMod(wx, Chunk::SIZE_X), lz = positiveMod(wz, Chunk::SIZE_Z);
-    if (chunk.at(lx, wy, lz) == newVal) return;
-    chunk.at(lx, wy, lz) = newVal;
-    chunk.modified = true;
-    markChunkAndNeighborsDirty(cx, cz);
-}
-
-void VoxelWorld::markChunkAndNeighborsDirty(int cx, int cz) {
-    for (int dz = -1; dz <= 1; ++dz)
-        for (int dx = -1; dx <= 1; ++dx)
-            if (Chunk* c = getLoadedChunk(cx + dx, cz + dz)) c->dirty = true;
-}
-
-void VoxelWorld::generateChunk(Chunk& chunk) const {
-    for (int y = 0; y < Chunk::SIZE_Y; ++y) {
-        for (int lz = 0; lz < Chunk::SIZE_Z; ++lz) {
-            for (int lx = 0; lx < Chunk::SIZE_X; ++lx) {
-                int wx = chunk.coord.x * Chunk::SIZE_X + lx;
-                int wz = chunk.coord.z * Chunk::SIZE_Z + lz;
-                // 此處會間接呼叫到 generator_.sampleHeight
-                chunk.at(lx, y, lz) = (y <= sampleSurfaceY(wx, wz)) ? 1u : 0u;
-            }
-        }
-    }
-    chunk.dirty = true;
-}
-
 void VoxelWorld::buildChunkMesh(Chunk& chunk) const {
     chunk.mesh.clear();
     for (int y = 0; y < Chunk::SIZE_Y; ++y)
@@ -157,22 +76,22 @@ void VoxelWorld::buildChunkMesh(Chunk& chunk) const {
 }
 
 void VoxelWorld::updateStreaming(const glm::vec3& playerPos, int loadRadius, int unloadRadius) {
-    int centerCX = floorDiv(worldToBlock(playerPos.x), Chunk::SIZE_X);
-    int centerCZ = floorDiv(worldToBlock(playerPos.z), Chunk::SIZE_Z);
-    for (int dz = -loadRadius; dz <= loadRadius; ++dz)
-        for (int dx = -loadRadius; dx <= loadRadius; ++dx) getOrCreateChunk(centerCX + dx, centerCZ + dz);
+    // 1. 委託 ChunkManager 處理區塊的載入與卸載
+    chunkManager_.updateStreaming(playerPos, loadRadius, unloadRadius, generator_);
 
-    for (auto it = chunks_.begin(); it != chunks_.end(); ) {
-        if (std::abs(it->first.x - centerCX) > unloadRadius || std::abs(it->first.z - centerCZ) > unloadRadius) {
-            if (!it->second->modified) { it = chunks_.erase(it); continue; }
+    // 2. 處理需要重新建模 (Meshing) 的區塊
+    chunkManager_.forEachChunk([this](Chunk& chunk) {
+        if (chunk.dirty) {
+            buildChunkMesh(chunk);
+            chunk.uploadMesh();
         }
-        if (it->second->dirty) { buildChunkMesh(*it->second); it->second->uploadMesh(); }
-        ++it;
-    }
+    });
 }
 
 void VoxelWorld::render() const {
-    for (const auto& [coord, chunkPtr] : chunks_) chunkPtr->render();
+    chunkManager_.forEachChunk([](const Chunk& chunk) {
+        chunk.render();
+    });
 }
 
 bool VoxelWorld::raycast(const glm::vec3& origin, const glm::vec3& dir, float maxDist, float step, RaycastHit& out) const {
@@ -189,5 +108,3 @@ bool VoxelWorld::raycast(const glm::vec3& origin, const glm::vec3& dir, float ma
     }
     return false;
 }
-
-void VoxelWorld::clear() { chunks_.clear(); }
