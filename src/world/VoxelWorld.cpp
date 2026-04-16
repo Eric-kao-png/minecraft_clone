@@ -58,45 +58,6 @@ static void pushVertex(std::vector<float>& out,
     out.push_back(u);  out.push_back(v);
 }
 
-static uint32_t hash2D(int x, int z, uint32_t seed) {
-    uint32_t h = seed;
-    h ^= static_cast<uint32_t>(x) * 0x27d4eb2du;
-    h = (h << 15u) | (h >> 17u);
-    h ^= static_cast<uint32_t>(z) * 0x85ebca6bu;
-    h ^= h >> 16u;
-    h *= 0x7feb352du;
-    h ^= h >> 15u;
-    h *= 0x846ca68bu;
-    h ^= h >> 16u;
-    return h;
-}
-
-static double randomSigned(int x, int z, uint32_t seed) {
-    const uint32_t h = hash2D(x, z, seed);
-    return (static_cast<double>(h & 0x00ffffffu) / static_cast<double>(0x00ffffffu)) * 2.0 - 1.0;
-}
-
-static double smoothstep(double t) { return t * t * (3.0 - 2.0 * t); }
-static double lerp(double a, double b, double t) { return a + (b - a) * t; }
-
-static double valueNoise2D(double x, double z, uint32_t seed) {
-    const int x0 = static_cast<int>(std::floor(x)), z0 = static_cast<int>(std::floor(z));
-    const double tx = x - x0, tz = z - z0;
-    const double sx = smoothstep(tx), sz = smoothstep(tz);
-    const double v00 = randomSigned(x0, z0, seed), v10 = randomSigned(x0 + 1, z0, seed);
-    const double v01 = randomSigned(x0, z0 + 1, seed), v11 = randomSigned(x0 + 1, z0 + 1, seed);
-    return lerp(lerp(v00, v10, sx), lerp(v01, v11, sx), sz);
-}
-
-static double fbm2D(double x, double z, uint32_t seed, int octaves, double lacunarity, double gain) {
-    double sum = 0.0, amp = 1.0, freq = 1.0, ampSum = 0.0;
-    for (int i = 0; i < octaves; ++i) {
-        sum += amp * valueNoise2D(x * freq, z * freq, seed + static_cast<uint32_t>(i * 97));
-        ampSum += amp; amp *= gain; freq *= lacunarity;
-    }
-    return (ampSum > 0.0) ? (sum / ampSum) : 0.0;
-}
-
 } // namespace
 
 int VoxelWorld::floorDiv(int a, int b) {
@@ -133,12 +94,14 @@ Chunk& VoxelWorld::getOrCreateChunk(int cx, int cz) {
     return *it->second;
 }
 
-int VoxelWorld::sampleSurfaceY(int wx, int wz) const {
-    double n = fbm2D(wx * noiseScale_, wz * noiseScale_, seed_, 4, 2.0, 0.5);
-    int y = static_cast<int>(std::lround(baseHeight_ + amplitude_ * n));
-    return std::clamp(y, 0, Chunk::SIZE_Y - 1);
+void VoxelWorld::setSeed(uint32_t seed) {
+    generator_.setSeed(seed); // 轉交給生成器處理
 }
 
+int VoxelWorld::sampleSurfaceY(int wx, int wz) const {
+    // 直接呼叫 generator_ 的介面
+    return generator_.sampleHeight(wx, wz);
+}
 bool VoxelWorld::hasBlockGlobal(int wx, int wy, int wz) const {
     if (wy < 0 || wy >= Chunk::SIZE_Y) return false;
     if (const Chunk* chunk = getLoadedChunk(floorDiv(wx, Chunk::SIZE_X), floorDiv(wz, Chunk::SIZE_Z)))
@@ -165,10 +128,16 @@ void VoxelWorld::markChunkAndNeighborsDirty(int cx, int cz) {
 }
 
 void VoxelWorld::generateChunk(Chunk& chunk) const {
-    for (int y = 0; y < Chunk::SIZE_Y; ++y)
-        for (int lz = 0; lz < Chunk::SIZE_Z; ++lz)
-            for (int lx = 0; lx < Chunk::SIZE_X; ++lx)
-                chunk.at(lx, y, lz) = (y <= sampleSurfaceY(chunk.coord.x * Chunk::SIZE_X + lx, chunk.coord.z * Chunk::SIZE_Z + lz)) ? 1u : 0u;
+    for (int y = 0; y < Chunk::SIZE_Y; ++y) {
+        for (int lz = 0; lz < Chunk::SIZE_Z; ++lz) {
+            for (int lx = 0; lx < Chunk::SIZE_X; ++lx) {
+                int wx = chunk.coord.x * Chunk::SIZE_X + lx;
+                int wz = chunk.coord.z * Chunk::SIZE_Z + lz;
+                // 此處會間接呼叫到 generator_.sampleHeight
+                chunk.at(lx, y, lz) = (y <= sampleSurfaceY(wx, wz)) ? 1u : 0u;
+            }
+        }
+    }
     chunk.dirty = true;
 }
 

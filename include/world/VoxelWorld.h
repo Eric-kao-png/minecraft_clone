@@ -2,6 +2,7 @@
 
 #include <glm/glm.hpp>
 #include "world/Chunk.h"
+#include "world/TerrainGenerator.h"
 #include <unordered_map>
 #include <memory>
 
@@ -16,7 +17,7 @@ public:
 
     VoxelWorld() = default;
 
-    void setSeed(uint32_t seed) { seed_ = seed; }
+    void setSeed(uint32_t seed); // 實作將改為呼叫 generator_
     bool hasBlockGlobal(int wx, int wy, int wz) const;
     void setBlockGlobal(int wx, int wy, int wz, bool solid);
     int sampleSurfaceY(int wx, int wz) const;
@@ -28,13 +29,9 @@ public:
     bool raycast(const glm::vec3& origin, const glm::vec3& dir, float maxDist, float step, RaycastHit& out) const;
 
 private:
-    uint32_t seed_ = 2026;
-    int baseHeight_ = 36;
-    double amplitude_ = 18.0;
-    double noiseScale_ = 0.045;
+    TerrainGenerator generator_;
 
     std::unordered_map<ChunkCoord, std::unique_ptr<Chunk>, ChunkCoordHash> chunks_;
-
     static int floorDiv(int a, int b);
     static int positiveMod(int a, int b);
     static int worldToBlock(float v);
