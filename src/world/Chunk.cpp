@@ -12,6 +12,7 @@ Chunk::~Chunk() {
 
 uint8_t& Chunk::at(int lx, int y, int lz) {
     return blocks[(static_cast<std::size_t>(y) * SIZE_Z + lz) * SIZE_X + lx];
+    // y * (SIZE_X * SIZE_Z) + lz * SIZE_X + lx
 }
 
 uint8_t Chunk::at(int lx, int y, int lz) const {

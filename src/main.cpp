@@ -69,15 +69,16 @@ int main() {
     if (!window) return -1;
 
     Shader lightingShader("../shaders/colors.vs", "../shaders/colors.fs");
-    const unsigned int diffuseMap = loadTexture("../resources/container2.png");
-    const unsigned int specularMap = loadTexture("../resources/container2_specular.png");
+
+    // [修改] 載入新的 Texture Atlas
+    const unsigned int diffuseMap = loadTexture("../resources/minecraft_atlas.png");
+    // 如果你沒有高光貼圖 (specularMap)，可以暫時先載入同一張，或是給一個全黑的圖片
+    const unsigned int specularMap = loadTexture("../resources/minecraft_atlas.png");
 
     initializeGameWorld();
 
-    // 避免第一幀 dt 過大
     lastFrame = static_cast<float>(glfwGetTime());
 
-    // --- 遊戲主迴圈 ---
     while (!glfwWindowShouldClose(window)) {
         const float currentFrame = static_cast<float>(glfwGetTime());
         deltaTime = std::min(currentFrame - lastFrame, 1.0f / 30.0f); // 限制最大 dt
@@ -262,7 +263,8 @@ static bool editBlock(bool place) {
     if (!gWorld.raycast(camera.Position, camera.Front, 6.0f, 0.10f, hit)) return false;
 
     if (!place) {
-        gWorld.setBlockGlobal(hit.block.x, hit.block.y, hit.block.z, false);
+        // [修改] 破壞方塊，設定為 0 (空氣)
+        gWorld.setBlockGlobal(hit.block.x, hit.block.y, hit.block.z, 0);
         return true;
     }
 
@@ -272,7 +274,8 @@ static bool editBlock(bool place) {
 
     if (voxel_physics::overlap(gPlayer.aabb(), voxel_physics::blockAABB(target.x, target.y, target.z))) return false;
 
-    gWorld.setBlockGlobal(target.x, target.y, target.z, true);
+    // [修改] 放置方塊，設定為 4 (木頭)
+    gWorld.setBlockGlobal(target.x, target.y, target.z, 4);
     return true;
 }
 

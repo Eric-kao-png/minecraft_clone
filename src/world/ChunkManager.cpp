@@ -3,6 +3,8 @@
 #include <cmath>
 #include <algorithm>
 
+// ... (floorDiv, positiveMod, worldToBlock, clear, getLoadedChunk, getOrCreateChunk 保持不變) ...
+
 int ChunkManager::floorDiv(int a, int b) {
     int q = a / b;
     int r = a % b;
@@ -20,9 +22,7 @@ int ChunkManager::worldToBlock(float v) {
     return static_cast<int>(std::floor(v + 0.5f));
 }
 
-void ChunkManager::clear() {
-    chunks_.clear();
-}
+void ChunkManager::clear() { chunks_.clear(); }
 
 Chunk* ChunkManager::getLoadedChunk(int cx, int cz) {
     auto it = chunks_.find(ChunkCoord{cx, cz});
@@ -43,13 +43,25 @@ Chunk& ChunkManager::getOrCreateChunk(int cx, int cz, const TerrainGenerator& ge
     return *it->second;
 }
 
+// [修改] 地層生成邏輯
 void ChunkManager::generateChunk(Chunk& chunk, const TerrainGenerator& generator) const {
     for (int y = 0; y < Chunk::SIZE_Y; ++y) {
         for (int lz = 0; lz < Chunk::SIZE_Z; ++lz) {
             for (int lx = 0; lx < Chunk::SIZE_X; ++lx) {
                 int wx = chunk.coord.x * Chunk::SIZE_X + lx;
                 int wz = chunk.coord.z * Chunk::SIZE_Z + lz;
-                chunk.at(lx, y, lz) = (y <= generator.sampleHeight(wx, wz)) ? 1u : 0u;
+                int surfaceH = generator.sampleHeight(wx, wz);
+
+                uint8_t id = 0; // 預設 0 = 空氣
+                if (y < surfaceH - 3) {
+                    id = 1; // 石頭
+                } else if (y < surfaceH) {
+                    id = 2; // 泥土
+                } else if (y == surfaceH) {
+                    id = 3; // 草地
+                }
+
+                chunk.at(lx, y, lz) = id;
             }
         }
     }
@@ -64,21 +76,22 @@ bool ChunkManager::hasBlockGlobal(int wx, int wy, int wz, const TerrainGenerator
     return wy <= generator.sampleHeight(wx, wz);
 }
 
-void ChunkManager::setBlockGlobal(int wx, int wy, int wz, bool solid, const TerrainGenerator& generator) {
+// [修改] 支援指定 Block ID
+void ChunkManager::setBlockGlobal(int wx, int wy, int wz, uint8_t blockID, const TerrainGenerator& generator) {
     if (wy < 0 || wy >= Chunk::SIZE_Y) return;
     int cx = floorDiv(wx, Chunk::SIZE_X), cz = floorDiv(wz, Chunk::SIZE_Z);
     Chunk& chunk = getOrCreateChunk(cx, cz, generator);
-    
-    uint8_t newVal = solid ? 1u : 0u;
+
     int lx = positiveMod(wx, Chunk::SIZE_X), lz = positiveMod(wz, Chunk::SIZE_Z);
-    
-    if (chunk.at(lx, wy, lz) == newVal) return;
-    chunk.at(lx, wy, lz) = newVal;
+
+    if (chunk.at(lx, wy, lz) == blockID) return;
+    chunk.at(lx, wy, lz) = blockID;
     chunk.modified = true;
-    
+
     markChunkAndNeighborsDirty(cx, cz);
 }
 
+// ... (markChunkAndNeighborsDirty, updateStreaming, forEachChunk 保持不變) ...
 void ChunkManager::markChunkAndNeighborsDirty(int cx, int cz) {
     for (int dz = -1; dz <= 1; ++dz) {
         for (int dx = -1; dx <= 1; ++dx) {
@@ -92,20 +105,18 @@ void ChunkManager::markChunkAndNeighborsDirty(int cx, int cz) {
 void ChunkManager::updateStreaming(const glm::vec3& playerPos, int loadRadius, int unloadRadius, const TerrainGenerator& generator) {
     int centerCX = floorDiv(worldToBlock(playerPos.x), Chunk::SIZE_X);
     int centerCZ = floorDiv(worldToBlock(playerPos.z), Chunk::SIZE_Z);
-    
-    // 1. 載入視野內的區塊
+
     for (int dz = -loadRadius; dz <= loadRadius; ++dz) {
         for (int dx = -loadRadius; dx <= loadRadius; ++dx) {
             getOrCreateChunk(centerCX + dx, centerCZ + dz, generator);
         }
     }
 
-    // 2. 卸載遠處未修改的區塊
     for (auto it = chunks_.begin(); it != chunks_.end(); ) {
         if (std::abs(it->first.x - centerCX) > unloadRadius || std::abs(it->first.z - centerCZ) > unloadRadius) {
-            if (!it->second->modified) { 
-                it = chunks_.erase(it); 
-                continue; 
+            if (!it->second->modified) {
+                it = chunks_.erase(it);
+                continue;
             }
         }
         ++it;
@@ -113,13 +124,9 @@ void ChunkManager::updateStreaming(const glm::vec3& playerPos, int loadRadius, i
 }
 
 void ChunkManager::forEachChunk(const std::function<void(Chunk&)>& action) {
-    for (auto& [coord, chunkPtr] : chunks_) {
-        action(*chunkPtr);
-    }
+    for (auto& [coord, chunkPtr] : chunks_) { action(*chunkPtr); }
 }
 
 void ChunkManager::forEachChunk(const std::function<void(const Chunk&)>& action) const {
-    for (const auto& [coord, chunkPtr] : chunks_) {
-        action(*chunkPtr);
-    }
+    for (const auto& [coord, chunkPtr] : chunks_) { action(*chunkPtr); }
 }
