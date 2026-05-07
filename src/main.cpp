@@ -17,7 +17,6 @@
 #include <cmath>
 #include <iostream>
 
-// --- 全域變數與常數宣告 ---
 static const unsigned int SCR_WIDTH = 1280;
 static const unsigned int SCR_HEIGHT = 720;
 static const int LOAD_RADIUS = 4;
@@ -45,7 +44,6 @@ struct InputState {
 static InputState gInput;
 static bool gSpaceWasDown = false;
 
-// --- 函式前置宣告 ---
 static GLFWwindow* initializeWindow();
 static void initializeGameWorld();
 static void updatePlayerMovement(float dt);
@@ -54,25 +52,18 @@ static bool editBlock(bool place);
 static void processInput(GLFWwindow* window);
 static unsigned int loadTexture(const char* path);
 
-// 回呼函式
 static void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 static void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 static void mouse_button_callback(GLFWwindow* window, int button, int action, int mods);
 
-
-// ============================================================================
-// 主程式入口
-// ============================================================================
 int main() {
     GLFWwindow* window = initializeWindow();
     if (!window) return -1;
 
     Shader lightingShader("../shaders/colors.vs", "../shaders/colors.fs");
 
-    // [修改] 載入新的 Texture Atlas
     const unsigned int diffuseMap = loadTexture("../resources/minecraft_atlas.png");
-    // 如果你沒有高光貼圖 (specularMap)，可以暫時先載入同一張，或是給一個全黑的圖片
     const unsigned int specularMap = loadTexture("../resources/minecraft_atlas.png");
 
     initializeGameWorld();
@@ -81,24 +72,18 @@ int main() {
 
     while (!glfwWindowShouldClose(window)) {
         const float currentFrame = static_cast<float>(glfwGetTime());
-        deltaTime = std::min(currentFrame - lastFrame, 1.0f / 30.0f); // 限制最大 dt
+        deltaTime = std::min(currentFrame - lastFrame, 1.0f / 30.0f);
         lastFrame = currentFrame;
 
-        // 1. 處理輸入
         processInput(window);
-
-        // 2. 更新邏輯與物理
         updatePlayerMovement(deltaTime);
         gWorld.updateStreaming(gPlayer.position, LOAD_RADIUS, UNLOAD_RADIUS);
 
-        // 3. 畫面清理
         glClearColor(0.07f, 0.07f, 0.10f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // 4. 設定 Shader 變數 (光照、相機矩陣)
         setupLightingAndCamera(lightingShader, currentFrame);
 
-        // 5. 綁定貼圖並渲染世界
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, diffuseMap);
         glActiveTexture(GL_TEXTURE1);
@@ -106,21 +91,14 @@ int main() {
 
         gWorld.render();
 
-        // 6. 交換緩衝區
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
 
-    // --- 清理資源 ---
     gWorld.clear();
     glfwTerminate();
     return 0;
 }
-
-
-// ============================================================================
-// 模組化函式實作
-// ============================================================================
 
 static GLFWwindow* initializeWindow() {
     glfwInit();
@@ -156,13 +134,11 @@ static GLFWwindow* initializeWindow() {
 
 static void initializeGameWorld() {
     gWorld.setSeed(2026);
-
     const int spawnX = 0;
     const int spawnZ = 0;
     const int surfaceY = gWorld.sampleSurfaceY(spawnX, spawnZ);
     const float groundTopY = static_cast<float>(surfaceY) + 0.5f;
 
-    // 出生在地表上方，給予自然落下的效果
     gPlayer.position = glm::vec3(static_cast<float>(spawnX), groundTopY + gPlayer.halfSize.y + 2.0f, static_cast<float>(spawnZ));
     gPlayer.velocity = glm::vec3(0.0f);
     gPlayer.onGround = false;
@@ -197,7 +173,6 @@ static void updatePlayerMovement(float dt) {
 }
 
 static void setupLightingAndCamera(Shader& shader, float currentFrame) {
-    // --- 晝夜軌道計算 ---
     const float orbitRadius = 120.0f;
     const float dayLengthSec = 60.0f;
     const float omega = 6.28318530718f / dayLengthSec;
@@ -216,19 +191,17 @@ static void setupLightingAndCamera(Shader& shader, float currentFrame) {
     const float sunStrength = sunUp * sunUp;
     const float moonStrength = std::sqrt(moonUp);
 
-    // --- 相機矩陣 ---
     const glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom),
                                                   static_cast<float>(SCR_WIDTH) / static_cast<float>(SCR_HEIGHT),
                                                   0.1f, 500.0f);
     const glm::mat4 view = camera.GetViewMatrix();
 
-    // --- Shader 設定 ---
     shader.use();
     shader.setInt("material.diffuse", 0);
     shader.setInt("material.specular", 1);
     shader.setFloat("material.shininess", 64.0f);
 
-    glm::vec3 minAmbient(0.03f, 0.03f, 0.04f); // 基礎環境光
+    glm::vec3 minAmbient(0.03f, 0.03f, 0.04f);
 
     shader.setVec3("sunLight.direction", sunRayDir);
     shader.setVec3("sunLight.ambient", minAmbient + glm::vec3(0.02f, 0.015f, 0.010f) * sunStrength);
@@ -254,16 +227,11 @@ static void setupLightingAndCamera(Shader& shader, float currentFrame) {
     shader.setMat4("model", glm::mat4(1.0f));
 }
 
-// ============================================================================
-// 輔助邏輯與回呼函式
-// ============================================================================
-
 static bool editBlock(bool place) {
     VoxelWorld::RaycastHit hit;
     if (!gWorld.raycast(camera.Position, camera.Front, 6.0f, 0.10f, hit)) return false;
 
     if (!place) {
-        // [修改] 破壞方塊，設定為 0 (空氣)
         gWorld.setBlockGlobal(hit.block.x, hit.block.y, hit.block.z, 0);
         return true;
     }
@@ -274,8 +242,8 @@ static bool editBlock(bool place) {
 
     if (voxel_physics::overlap(gPlayer.aabb(), voxel_physics::blockAABB(target.x, target.y, target.z))) return false;
 
-    // [修改] 放置方塊，設定為 4 (木頭)
-    gWorld.setBlockGlobal(target.x, target.y, target.z, 4);
+    // 放置目前選中的方塊
+    gWorld.setBlockGlobal(target.x, target.y, target.z, gPlayer.selectedBlockID);
     return true;
 }
 
@@ -292,6 +260,12 @@ static void processInput(GLFWwindow* window) {
     const bool spaceDown = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
     gInput.jumpPressed = spaceDown && !gSpaceWasDown;
     gSpaceWasDown = spaceDown;
+
+    // 按鍵切換邏輯 (依據要求的順序)
+    if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS) gPlayer.selectedBlockID = 2; // 泥土
+    if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS) gPlayer.selectedBlockID = 3; // 草地
+    if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS) gPlayer.selectedBlockID = 4; // 鵝卵石
+    if (glfwGetKey(window, GLFW_KEY_4) == GLFW_PRESS) gPlayer.selectedBlockID = 1; // 石頭
 }
 
 static void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
@@ -303,9 +277,7 @@ static void mouse_callback(GLFWwindow* window, double xposIn, double yposIn) {
     (void)window;
     const float xpos = static_cast<float>(xposIn);
     const float ypos = static_cast<float>(yposIn);
-
     if (firstMouse) { lastX = xpos; lastY = ypos; firstMouse = false; }
-
     camera.ProcessMouseMovement(xpos - lastX, lastY - ypos);
     lastX = xpos; lastY = ypos;
 }
@@ -325,17 +297,14 @@ static void mouse_button_callback(GLFWwindow* window, int button, int action, in
 static unsigned int loadTexture(const char* path) {
     unsigned int textureID;
     glGenTextures(1, &textureID);
-
     int width, height, nrComponents;
     stbi_set_flip_vertically_on_load(true);
     unsigned char* data = stbi_load(path, &width, &height, &nrComponents, 0);
-
     if (data) {
         GLenum format = (nrComponents == 1) ? GL_RED : (nrComponents == 3) ? GL_RGB : GL_RGBA;
         glBindTexture(GL_TEXTURE_2D, textureID);
         glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
         glGenerateMipmap(GL_TEXTURE_2D);
-
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);

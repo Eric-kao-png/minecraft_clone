@@ -1,13 +1,14 @@
 #pragma once
 
 #include <glm/glm.hpp>
-
 #include <algorithm>
-
 #include "physics/PhysicsBody.h"
 
 class Player : public PhysicsBody {
 public:
+    // 初始狀態設定為泥土 (ID 2)
+    uint8_t selectedBlockID = 2;
+
     float walkSpeed = 6.5f;
     float sprintSpeed = 10.0f;
     float jumpSpeed = 9.0f;
