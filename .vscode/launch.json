@@ -1,0 +1,20 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run venture",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/venture",
+      "cwd": "${workspaceFolder}/build",
+      "preLaunchTask": "Build venture"
+    },
+    {
+      "name": "Run venture (no build)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/venture",
+      "cwd": "${workspaceFolder}/build"
+    }
+  ]
+}

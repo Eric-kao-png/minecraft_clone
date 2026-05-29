@@ -68,12 +68,22 @@ Generate build files:
 mkdir build && cd build
 cmake ..
 ```
-Compile and run:
+Compile and run (from project root):
 
-```Bash
-make
-./minecraft_clone
+```bash
+cmake -B build -S . -DCMAKE_PREFIX_PATH="$(brew --prefix glfw)"
+cmake --build build
+cd build && ./venture
 ```
+
+### Cursor / VS Code
+
+Open this folder in Cursor.
+
+- **Build**: `Cmd+Shift+B` (default task: Build venture)
+- **Run game** (no debugger): `Cmd+Shift+P` → **Tasks: Run Task** → **Run venture (game)**
+- **Run with debugger**: install extension **CodeLLDB**, then Run and Debug → **Run venture** → F5
+
 Roadmap:
   * Implement Greedy Meshing for further performance optimization.
 
