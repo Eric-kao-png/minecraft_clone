@@ -29,6 +29,8 @@ int Application::run() {
     diffuseMap_ = render::loadTexture2D(GameConfig::kAtlasTexturePath, kBlockTextureFilter);
     specularMap_ = render::loadTexture2D(GameConfig::kAtlasTexturePath, kBlockTextureFilter);
     dirtMap_ = render::loadTexture2D(GameConfig::kDirtTexturePath, kBlockTextureFilter);
+    grassTopMap_ = render::loadTexture2D(GameConfig::kGrassTopTexturePath, kBlockTextureFilter);
+    grassSideMap_ = render::loadTexture2D(GameConfig::kGrassSideTexturePath, kBlockTextureFilter);
 
     initGameWorld();
     lastFrame_ = static_cast<float>(glfwGetTime());
@@ -54,6 +56,10 @@ int Application::run() {
         glBindTexture(GL_TEXTURE_2D, specularMap_);
         glActiveTexture(GL_TEXTURE2);
         glBindTexture(GL_TEXTURE_2D, dirtMap_);
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, grassTopMap_);
+        glActiveTexture(GL_TEXTURE4);
+        glBindTexture(GL_TEXTURE_2D, grassSideMap_);
 
         world_.render();
 

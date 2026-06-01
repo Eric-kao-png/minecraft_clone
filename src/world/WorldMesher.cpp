@@ -98,8 +98,7 @@ void WorldMesher::buildChunkMesh(Chunk& chunk, const ChunkManager& chunkManager,
 
                     const BlockAtlas::FaceTexture faceTexture =
                         BlockAtlas::textureForFace(blockID, face.nx, face.ny, face.nz);
-                    const float textureLayer =
-                        (faceTexture == BlockAtlas::FaceTexture::Dirt) ? 1.0f : 0.0f;
+                    const float textureLayer = static_cast<float>(static_cast<uint8_t>(faceTexture));
 
                     float u0 = 0.0f;
                     float v0 = 0.0f;
@@ -112,7 +111,7 @@ void WorldMesher::buildChunkMesh(Chunk& chunk, const ChunkManager& chunkManager,
                     for (int i = 0; i < 6; ++i) {
                         float u = 0.0f;
                         float v = 0.0f;
-                        if (faceTexture == BlockAtlas::FaceTexture::Dirt) {
+                        if (BlockAtlas::usesStandaloneTexture(faceTexture)) {
                             u = face.v[i][3];
                             v = face.v[i][4];
                         } else {

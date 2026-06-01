@@ -11,30 +11,28 @@ FaceTexture textureForFace(uint8_t blockId, float normalX, float normalY, float 
     if (blockId == blocks::kDirt) {
         return FaceTexture::Dirt;
     }
-    if (blockId == blocks::kGrass && normalY < -0.5f) {
-        return FaceTexture::Dirt;
+
+    if (blockId == blocks::kGrass) {
+        if (normalY > 0.5f) {
+            return FaceTexture::GrassTop;
+        }
+        if (normalY < -0.5f) {
+            return FaceTexture::Dirt;
+        }
+        return FaceTexture::GrassSide;
     }
+
     return FaceTexture::Atlas;
 }
 
 int atlasIndexForFace(uint8_t blockId, float normalX, float normalY, float normalZ) {
     (void)normalX;
-
-    if (blockId == blocks::kGrass) {
-        if (normalY > 0.5f) {
-            return 204;
-        }
-        if (normalY < -0.5f) {
-            return 2;
-        }
-        return 3;
-    }
+    (void)normalY;
+    (void)normalZ;
 
     switch (blockId) {
         case blocks::kStone:
             return 1;
-        case blocks::kDirt:
-            return 2;
         case blocks::kCobblestone:
             return 16;
         default:

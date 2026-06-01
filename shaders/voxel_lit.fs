@@ -5,6 +5,8 @@ struct Material {
     sampler2D diffuse;
     sampler2D specular;
     sampler2D dirt;
+    sampler2D grassTop;
+    sampler2D grassSide;
     float     shininess;
 };
 
@@ -70,17 +72,23 @@ in vec2 TexCoords;
 in float TexLayer;
 
 vec3 sampleAlbedo(vec2 uv) {
-    if (TexLayer > 0.5) {
+    if (TexLayer < 0.5) {
+        return vec3(texture(material.diffuse, uv));
+    }
+    if (TexLayer < 1.5) {
         return vec3(texture(material.dirt, uv));
     }
-    return vec3(texture(material.diffuse, uv));
+    if (TexLayer < 2.5) {
+        return vec3(texture(material.grassTop, uv));
+    }
+    return vec3(texture(material.grassSide, uv));
 }
 
 vec3 sampleSpecular(vec2 uv) {
-    if (TexLayer > 0.5) {
-        return vec3(texture(material.dirt, uv)) * 0.15;
+    if (TexLayer < 0.5) {
+        return vec3(texture(material.specular, uv));
     }
-    return vec3(texture(material.specular, uv));
+    return sampleAlbedo(uv) * 0.15;
 }
 
 void main()
