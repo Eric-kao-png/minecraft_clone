@@ -11,7 +11,7 @@
       "problemMatcher": []
     },
     {
-      "label": "Build venture",
+      "label": "Build minecraft_clone",
       "type": "shell",
       "command": "cmake --build build",
       "options": {
@@ -26,13 +26,13 @@
       "problemMatcher": ["$gcc"]
     },
     {
-      "label": "Run venture (game)",
+      "label": "Run minecraft_clone (game)",
       "type": "shell",
-      "command": "./venture",
+      "command": "./minecraft_clone",
       "options": {
         "cwd": "${workspaceFolder}/build"
       },
-      "dependsOn": ["Build venture"],
+      "dependsOn": ["Build minecraft_clone"],
       "dependsOrder": "sequence",
       "presentation": {
         "reveal": "always",

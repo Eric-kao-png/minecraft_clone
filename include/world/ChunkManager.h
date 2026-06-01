@@ -1,10 +1,13 @@
 #pragma once
 
-#include <glm/glm.hpp>
 #include "world/Chunk.h"
-#include <unordered_map>
-#include <memory>
+
+#include <glm/glm.hpp>
+
+#include <cstdint>
 #include <functional>
+#include <memory>
+#include <unordered_map>
 
 class TerrainGenerator;
 
@@ -16,7 +19,6 @@ public:
     void clear();
 
     bool hasBlockGlobal(int wx, int wy, int wz, const TerrainGenerator& generator) const;
-    // [修改] 將 bool solid 改為 uint8_t blockID
     void setBlockGlobal(int wx, int wy, int wz, uint8_t blockID, const TerrainGenerator& generator);
 
     Chunk* getLoadedChunk(int cx, int cz);
@@ -28,10 +30,6 @@ public:
 
     void forEachChunk(const std::function<void(Chunk&)>& action);
     void forEachChunk(const std::function<void(const Chunk&)>& action) const;
-
-    static int floorDiv(int a, int b);
-    static int positiveMod(int a, int b);
-    static int worldToBlock(float v);
 
 private:
     std::unordered_map<ChunkCoord, std::unique_ptr<Chunk>, ChunkCoordHash> chunks_;

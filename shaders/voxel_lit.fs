@@ -4,6 +4,7 @@
 struct Material {
     sampler2D diffuse;
     sampler2D specular;
+    sampler2D dirt;
     float     shininess;
 };
 
@@ -66,6 +67,21 @@ uniform SpotLight spotLight;
 in vec3 FragPos;
 in vec3 Normal;
 in vec2 TexCoords;
+in float TexLayer;
+
+vec3 sampleAlbedo(vec2 uv) {
+    if (TexLayer > 0.5) {
+        return vec3(texture(material.dirt, uv));
+    }
+    return vec3(texture(material.diffuse, uv));
+}
+
+vec3 sampleSpecular(vec2 uv) {
+    if (TexLayer > 0.5) {
+        return vec3(texture(material.dirt, uv)) * 0.15;
+    }
+    return vec3(texture(material.specular, uv));
+}
 
 void main()
 {
@@ -101,8 +117,8 @@ vec3 CalcDirLight(DirLight light, vec3 normal, vec3 viewDir)
     vec3 reflectDir = reflect(-lightDir, normal);
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), material.shininess);
 
-    vec3 albedo  = vec3(texture(material.diffuse, TexCoords));
-    vec3 specMap = vec3(texture(material.specular, TexCoords));
+    vec3 albedo  = sampleAlbedo(TexCoords);
+    vec3 specMap = sampleSpecular(TexCoords);
 
     vec3 ambient  = light.ambient  * albedo;
     vec3 diffuse  = light.diffuse  * diff * albedo;
@@ -125,8 +141,8 @@ vec3 CalcPointLight(PointLight light, vec3 normal, vec3 fragPos, vec3 viewDir)
     float attenuation = 1.0 / (light.constant + light.linear * distance +
                                light.quadratic * (distance * distance));
 
-    vec3 albedo  = vec3(texture(material.diffuse, TexCoords));
-    vec3 specMap = vec3(texture(material.specular, TexCoords));
+    vec3 albedo  = sampleAlbedo(TexCoords);
+    vec3 specMap = sampleSpecular(TexCoords);
 
     vec3 ambient  = light.ambient  * albedo;
     vec3 diffuse  = light.diffuse  * diff * albedo;
@@ -141,15 +157,15 @@ vec3 CalcPointLight(PointLight light, vec3 normal, vec3 fragPos, vec3 viewDir)
 
 vec3 CalcSpotLight(SpotLight light, vec3 normal, vec3 fragPos, vec3 viewDir)
 {
-    vec3 ambient = light.ambient * texture(material.diffuse, TexCoords).rgb;
+    vec3 ambient = light.ambient * sampleAlbedo(TexCoords);
 
     vec3 lightDir = normalize(light.position - fragPos);
     float diff = max(dot(normal, lightDir), 0.0);
-    vec3 diffuse = light.diffuse * diff * texture(material.diffuse, TexCoords).rgb;
+    vec3 diffuse = light.diffuse * diff * sampleAlbedo(TexCoords);
 
     vec3 reflectDir = reflect(-lightDir, normal);
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), material.shininess);
-    vec3 specular = light.specular * spec * texture(material.specular, TexCoords).rgb;
+    vec3 specular = light.specular * spec * sampleSpecular(TexCoords);
 
     // soft edges
     float theta = dot(lightDir, normalize(-light.direction));

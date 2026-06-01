@@ -27,13 +27,18 @@ void Chunk::uploadMesh() {
         glBindVertexArray(vao);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
 
-        // Position: 3 floats, Normal: 3 floats, UV: 2 floats (Total 8 floats)
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+        constexpr int kFloatsPerVertex = 9;
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, kFloatsPerVertex * sizeof(float), (void*)0);
         glEnableVertexAttribArray(0);
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, kFloatsPerVertex * sizeof(float),
+                              (void*)(3 * sizeof(float)));
         glEnableVertexAttribArray(1);
-        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, kFloatsPerVertex * sizeof(float),
+                              (void*)(6 * sizeof(float)));
         glEnableVertexAttribArray(2);
+        glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, kFloatsPerVertex * sizeof(float),
+                              (void*)(8 * sizeof(float)));
+        glEnableVertexAttribArray(3);
     }
 
     glBindVertexArray(vao);
@@ -43,7 +48,7 @@ void Chunk::uploadMesh() {
                  mesh.empty() ? nullptr : mesh.data(),
                  GL_DYNAMIC_DRAW);
     
-    vertexCount = static_cast<int>(mesh.size() / 8);
+    vertexCount = static_cast<int>(mesh.size() / 9);
     dirty = false;
 }
 

@@ -2,18 +2,18 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run venture",
+      "name": "Run minecraft_clone",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/build/venture",
+      "program": "${workspaceFolder}/build/minecraft_clone",
       "cwd": "${workspaceFolder}/build",
-      "preLaunchTask": "Build venture"
+      "preLaunchTask": "Build minecraft_clone"
     },
     {
-      "name": "Run venture (no build)",
+      "name": "Run minecraft_clone (no build)",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/build/venture",
+      "program": "${workspaceFolder}/build/minecraft_clone",
       "cwd": "${workspaceFolder}/build"
     }
   ]
