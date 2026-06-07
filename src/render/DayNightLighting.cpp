@@ -40,9 +40,6 @@ void applyDayNightLighting(Shader& shader, Camera& camera, float currentFrame,
     shader.use();
     shader.setInt("material.diffuse", 0);
     shader.setInt("material.specular", 1);
-    shader.setInt("material.dirt", 2);
-    shader.setInt("material.grassTop", 3);
-    shader.setInt("material.grassSide", 4);
     shader.setFloat("material.shininess", 64.0f);
 
     const glm::vec3 minAmbient(0.03f, 0.03f, 0.04f);

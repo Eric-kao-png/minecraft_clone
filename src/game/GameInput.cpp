@@ -28,9 +28,28 @@ void GameInput::install(GLFWwindow* window, Application* app) {
     glfwSetMouseButtonCallback(window, mouseButtonCallback);
 }
 
+void GameInput::setCursorCaptured(GLFWwindow* window, bool captured) {
+    cursorCaptured_ = captured;
+    glfwSetInputMode(window, GLFW_CURSOR, captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+    if (captured) {
+        firstMouse_ = true;
+    }
+}
+
 void GameInput::pollKeyboard(GLFWwindow* window) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, true);
+    }
+
+    const bool tabDown = glfwGetKey(window, GLFW_KEY_TAB) == GLFW_PRESS;
+    if (tabDown && !tabWasDown_) {
+        setCursorCaptured(window, !cursorCaptured_);
+    }
+    tabWasDown_ = tabDown;
+
+    if (!cursorCaptured_) {
+        state_ = InputState{};
+        return;
     }
 
     state_.forward = glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS;
@@ -66,6 +85,9 @@ void GameInput::mouseMoveCallback(GLFWwindow* window, double xposIn, double ypos
     }
 
     GameInput& input = app->input();
+    if (!input.cursorCaptured_) {
+        return;
+    }
     const float xpos = static_cast<float>(xposIn);
     const float ypos = static_cast<float>(yposIn);
 
@@ -84,7 +106,7 @@ void GameInput::mouseMoveCallback(GLFWwindow* window, double xposIn, double ypos
 void GameInput::scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
     (void)xoffset;
     Application* app = appFromWindow(window);
-    if (!app) {
+    if (!app || !app->input().cursorCaptured_) {
         return;
     }
     app->camera().ProcessMouseScroll(static_cast<float>(yoffset));
@@ -97,7 +119,7 @@ void GameInput::mouseButtonCallback(GLFWwindow* window, int button, int action, 
     }
 
     Application* app = appFromWindow(window);
-    if (!app) {
+    if (!app || !app->input().cursorCaptured_) {
         return;
     }
 

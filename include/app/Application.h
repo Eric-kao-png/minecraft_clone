@@ -39,7 +39,4 @@ private:
     float lastFrame_ = 0.0f;
     unsigned int diffuseMap_ = 0;
     unsigned int specularMap_ = 0;
-    unsigned int dirtMap_ = 0;
-    unsigned int grassTopMap_ = 0;
-    unsigned int grassSideMap_ = 0;
 };

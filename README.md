@@ -1,76 +1,90 @@
-# A C++/OpenGL Minecraft Clone
+# minecraft_clone
 
 ![C++](https://img.shields.io/badge/Language-C%2B%2B-blue.svg)
 ![OpenGL](https://img.shields.io/badge/Graphics-OpenGL%203.3+-green.svg)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-`minecraft_clone` is a high-performance voxel game engine built from scratch using C++ and OpenGL 3.3+. This project implements the core architecture of a voxel-based world, featuring a dynamic chunk system, procedural terrain generation, physical interactions, and custom lighting shaders.
-
-
+A voxel sandbox prototype built with **C++17** and **OpenGL 3.3 Core**. The project features chunk-based world streaming, procedural terrain, Phong lighting with a day/night cycle, player physics, and block placement/destruction.
 
 ## Core Features
 
-* **Efficient World Management**:
-    * **Chunk-based Architecture**: Divides the world into $16 \times 16 \times 16$ manageable sections to optimize rendering and memory usage.
-    * **Advanced World Meshing**: Implements Face Culling to significantly reduce the number of vertices sent to the GPU by rendering only visible faces.
-* **Dynamic Lighting System**:
-    * Implements the Phong Lighting Model including Ambient, Diffuse, and Specular components.
-    * Utilizes GLSL shaders (`voxel_lit.vs/fs`) for lit voxel rendering.
-* **Physics & Interaction**:
-    * **AABB Collision Detection**: Precise interaction between the player and the voxel world, preventing clipping and enabling gravity.
-    * **World Raycasting**: Accurately determines which block the player is looking at, providing the foundation for block placement and destruction.
-* **Procedural Generation**:
-    * Dynamic terrain generation logic that creates varied landscapes.
+- **Chunk world**
+  - Chunks are **16 × 96 × 16** blocks
+  - Dynamic load/unload around the player
+  - Face culling meshing (only visible block faces are rendered)
+- **Lighting**
+  - Phong model (ambient, diffuse, specular)
+  - Orbiting sun and moon directional lights
+  - Player flashlight (spot light)
+  - Shaders: `shaders/voxel_lit.vs` / `shaders/voxel_lit.fs`
+- **Physics & interaction**
+  - AABB collision and gravity
+  - World raycasting for block targeting
+  - Break (left click) and place (right click) blocks
+- **Terrain**
+  - Procedural heightmap generation (FBM noise)
+  - Block types: stone, dirt, grass, cobblestone
 
+## Controls
 
+| Input | Action |
+|-------|--------|
+| W / A / S / D | Move |
+| Space | Jump |
+| Left Shift | Sprint |
+| Mouse | Look |
+| Scroll wheel | Adjust FOV |
+| Left click | Break block |
+| Right click | Place block |
+| 1 | Select dirt |
+| 2 | Select grass |
+| 3 | Select cobblestone |
+| 4 | Select stone |
+| Tab | Release / capture mouse cursor |
+| Esc | Quit |
 
 ## Technical Stack
 
-* **Language**: C++17
-* **Graphics API**: OpenGL 3.3 Core Profile
-* **Libraries**:
-    * **GLFW**: Window management and input handling.
-    * **Glad**: OpenGL function loader.
-    * **GLM (OpenGL Mathematics)**: Vector and matrix mathematics.
-    * **stb_image**: Image loading for textures.
-* **Build System**: CMake
+| Component | Choice |
+|-----------|--------|
+| Language | C++17 |
+| Graphics | OpenGL 3.3 Core |
+| Window / input | GLFW |
+| Loader | Glad |
+| Math | GLM |
+| Textures | stb_image |
+| Build | CMake ≥ 3.10 |
 
 ## Project Structure
 
 ```text
 ├── include/
-│   ├── app/            # Application entry, GameConfig
+│   ├── app/            # Application, GameConfig
 │   ├── game/           # Input handling
 │   ├── render/         # Lighting, texture loading
-│   ├── world/          # Chunks, meshing, terrain, block IDs
+│   ├── world/          # Chunks, meshing, terrain, atlas
 │   └── physics/        # Player, collision
-├── src/                # Implementations matching include/
-├── engine/             # Camera & Shader wrappers
-├── external/           # glad, glm, stb (third-party)
-├── shaders/            # GLSL (e.g. voxel_lit.vs/fs)
-└── resources/          # Texture atlases and image assets
+├── src/                # Implementations
+├── engine/             # Camera, Shader helpers
+├── external/           # glad, glm, stb
+├── shaders/            # GLSL (voxel_lit.vs/fs)
+└── resources/          # minecraft_atlas.png (+ optional standalone textures)
 ```
-**Getting Started**:
-* **Prerequisites**:
-  * A graphics driver with OpenGL 3.3+ support.
-  * CMake 3.10 or higher.
-  * C++ compiler (GCC/Clang or MSVC).
 
-Build Instructions:
+Runtime block rendering uses **`resources/minecraft_atlas.png`** (16×16 tile grid). Grass blocks use multiple atlas tiles (top / side / bottom).
 
-Clone the repository:
+## Getting Started
 
-```Bash
-git clone [https://github.com/Eric-kao-png/minecraft_clone.git](https://github.com/Eric-kao-png/minecraft_clone.git)
-cd minecraft_clone
-```
-Generate build files:
+### Prerequisites
 
-```Bash
-mkdir build && cd build
-cmake ..
-```
-Compile and run (from project root):
+- OpenGL 3.3+ capable GPU and drivers
+- CMake 3.10+
+- C++17 compiler (Clang, GCC, or MSVC)
+- **GLFW 3** (on macOS: `brew install glfw`)
+
+### Build & run
+
+From the project root:
 
 ```bash
 cmake -B build -S . -DCMAKE_PREFIX_PATH="$(brew --prefix glfw)"
@@ -78,22 +92,39 @@ cmake --build build
 cd build && ./minecraft_clone
 ```
 
+> **Important:** Run the executable from the `build/` directory (or use the VS Code run task below). Shader and texture paths are relative to that working directory.
+
+After the first configure, incremental builds are enough:
+
+```bash
+cmake --build build
+cd build && ./minecraft_clone
+```
+
 ### Cursor / VS Code
 
-Open this folder in Cursor.
+Open this folder in Cursor or VS Code.
 
-- **Build**: `Cmd+Shift+B` (default task: Build minecraft_clone)
-- **Run game** (no debugger): `Cmd+Shift+P` → **Tasks: Run Task** → **Run minecraft_clone (game)**
-- **Run with debugger**: install extension **CodeLLDB**, then Run and Debug → **Run minecraft_clone** → F5
+- **Build:** `Cmd+Shift+B` → **Build minecraft_clone**
+- **Run:** `Cmd+Shift+P` → **Tasks: Run Task** → **Run minecraft_clone (game)**
+- **Debug:** Install **CodeLLDB**, then Run and Debug → **Run minecraft_clone** → F5
 
-Roadmap:
-  * Implement Greedy Meshing for further performance optimization.
+Recommended extensions are listed in `.vscode/extensions.json`.
 
-  * Add support for transparent blocks (glass) and fluid rendering (water).
+## Roadmap
 
-  * Integrate Perlin Noise for more realistic biomes.
+- Greedy meshing for fewer vertices
+- Transparent blocks (glass) and fluids (water)
+- Richer biomes (e.g. Perlin noise)
+- Multi-threaded chunk loading
 
-  * Multi-threaded chunk loading.
+## Acknowledgments
 
-License:
-  * Distributed under the MIT License. See LICENSE for more information.
+Block textures in this project were created with help from the following open-source tools and models:
+
+- **[FLUX.1 [schnell]](https://huggingface.co/black-forest-labs/FLUX.1-schnell)** by [Black Forest Labs](https://huggingface.co/black-forest-labs) — text-to-image generation for texture concepts and reference imagery (Apache-2.0).
+- **[Aseprite](https://www.aseprite.org/)** — pixel-art editing for refining block textures.
+
+## License
+
+MIT License.

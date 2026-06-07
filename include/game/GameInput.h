@@ -22,8 +22,10 @@ public:
     void pollKeyboard(GLFWwindow* window);
 
     const InputState& state() const { return state_; }
+    bool isCursorCaptured() const { return cursorCaptured_; }
 
 private:
+    void setCursorCaptured(GLFWwindow* window, bool captured);
     static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
     static void mouseMoveCallback(GLFWwindow* window, double xpos, double ypos);
     static void scrollCallback(GLFWwindow* window, double xoffset, double yoffset);
@@ -31,8 +33,10 @@ private:
 
     Application* app_ = nullptr;
     InputState state_;
+    bool cursorCaptured_ = true;
     bool firstMouse_ = true;
     bool spaceWasDown_ = false;
+    bool tabWasDown_ = false;
     float lastMouseX_ = 0.0f;
     float lastMouseY_ = 0.0f;
 };

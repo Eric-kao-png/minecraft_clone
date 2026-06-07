@@ -4,39 +4,38 @@
 
 namespace BlockAtlas {
 
-FaceTexture textureForFace(uint8_t blockId, float normalX, float normalY, float normalZ) {
-    (void)normalX;
-    (void)normalZ;
+namespace {
 
-    if (blockId == blocks::kDirt) {
-        return FaceTexture::Dirt;
-    }
+constexpr int kGrassTop = 204;  // row 12, col 12
+constexpr int kStone = 1;       // row 0, col 1
+constexpr int kDirt = 2;        // row 0, col 2
+constexpr int kGrassSide = 3;   // row 0, col 3
+constexpr int kCobblestone = 16; // row 1, col 0
 
-    if (blockId == blocks::kGrass) {
-        if (normalY > 0.5f) {
-            return FaceTexture::GrassTop;
-        }
-        if (normalY < -0.5f) {
-            return FaceTexture::Dirt;
-        }
-        return FaceTexture::GrassSide;
-    }
-
-    return FaceTexture::Atlas;
-}
+} // namespace
 
 int atlasIndexForFace(uint8_t blockId, float normalX, float normalY, float normalZ) {
     (void)normalX;
-    (void)normalY;
-    (void)normalZ;
+
+    if (blockId == blocks::kGrass) {
+        if (normalY > 0.5f) {
+            return kGrassTop;
+        }
+        if (normalY < -0.5f) {
+            return kDirt;
+        }
+        return kGrassSide;
+    }
 
     switch (blockId) {
         case blocks::kStone:
-            return 1;
+            return kStone;
+        case blocks::kDirt:
+            return kDirt;
         case blocks::kCobblestone:
-            return 16;
+            return kCobblestone;
         default:
-            return 1;
+            return kStone;
     }
 }
 

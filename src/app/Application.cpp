@@ -28,9 +28,6 @@ int Application::run() {
     constexpr render::TextureFilter kBlockTextureFilter = render::TextureFilter::PixelArt;
     diffuseMap_ = render::loadTexture2D(GameConfig::kAtlasTexturePath, kBlockTextureFilter);
     specularMap_ = render::loadTexture2D(GameConfig::kAtlasTexturePath, kBlockTextureFilter);
-    dirtMap_ = render::loadTexture2D(GameConfig::kDirtTexturePath, kBlockTextureFilter);
-    grassTopMap_ = render::loadTexture2D(GameConfig::kGrassTopTexturePath, kBlockTextureFilter);
-    grassSideMap_ = render::loadTexture2D(GameConfig::kGrassSideTexturePath, kBlockTextureFilter);
 
     initGameWorld();
     lastFrame_ = static_cast<float>(glfwGetTime());
@@ -41,7 +38,9 @@ int Application::run() {
         lastFrame_ = currentFrame;
 
         input_.pollKeyboard(window_);
-        updatePlayerMovement(deltaTime);
+        if (input_.isCursorCaptured()) {
+            updatePlayerMovement(deltaTime);
+        }
         world_.updateStreaming(player_.position, GameConfig::kLoadRadius, GameConfig::kUnloadRadius);
 
         glClearColor(0.07f, 0.07f, 0.10f, 1.0f);
@@ -54,12 +53,6 @@ int Application::run() {
         glBindTexture(GL_TEXTURE_2D, diffuseMap_);
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, specularMap_);
-        glActiveTexture(GL_TEXTURE2);
-        glBindTexture(GL_TEXTURE_2D, dirtMap_);
-        glActiveTexture(GL_TEXTURE3);
-        glBindTexture(GL_TEXTURE_2D, grassTopMap_);
-        glActiveTexture(GL_TEXTURE4);
-        glBindTexture(GL_TEXTURE_2D, grassSideMap_);
 
         world_.render();
 

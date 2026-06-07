@@ -96,30 +96,17 @@ void WorldMesher::buildChunkMesh(Chunk& chunk, const ChunkManager& chunkManager,
                         continue;
                     }
 
-                    const BlockAtlas::FaceTexture faceTexture =
-                        BlockAtlas::textureForFace(blockID, face.nx, face.ny, face.nz);
-                    const float textureLayer = static_cast<float>(static_cast<uint8_t>(faceTexture));
-
+                    const int atlasIndex =
+                        BlockAtlas::atlasIndexForFace(blockID, face.nx, face.ny, face.nz);
                     float u0 = 0.0f;
                     float v0 = 0.0f;
-                    if (faceTexture == BlockAtlas::FaceTexture::Atlas) {
-                        const int atlasIndex =
-                            BlockAtlas::atlasIndexForFace(blockID, face.nx, face.ny, face.nz);
-                        BlockAtlas::tileOrigin(atlasIndex, u0, v0);
-                    }
+                    BlockAtlas::tileOrigin(atlasIndex, u0, v0);
 
                     for (int i = 0; i < 6; ++i) {
-                        float u = 0.0f;
-                        float v = 0.0f;
-                        if (BlockAtlas::usesStandaloneTexture(faceTexture)) {
-                            u = face.v[i][3];
-                            v = face.v[i][4];
-                        } else {
-                            u = u0 + face.v[i][3] * BlockAtlas::kTileSize;
-                            v = v0 + face.v[i][4] * BlockAtlas::kTileSize;
-                        }
+                        const float u = u0 + face.v[i][3] * BlockAtlas::kTileSize;
+                        const float v = v0 + face.v[i][4] * BlockAtlas::kTileSize;
                         pushVertex(chunk.mesh, wx + face.v[i][0], y + face.v[i][1], wz + face.v[i][2], face.nx,
-                                   face.ny, face.nz, u, v, textureLayer);
+                                   face.ny, face.nz, u, v, 0.0f);
                     }
                 }
             }
