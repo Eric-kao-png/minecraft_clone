@@ -6,6 +6,26 @@
 
 A voxel sandbox prototype built with **C++17** and **OpenGL 3.3 Core**. The project features chunk-based world streaming, procedural terrain, Phong lighting with a day/night cycle, player physics, and block placement/destruction.
 
+<p align="center">
+  <img src="docs/screenshots/terrain.png" alt="Procedural grass terrain with day/night lighting" width="720">
+</p>
+
+## Gallery
+
+| Procedural terrain | Block building |
+| :---: | :---: |
+| <img src="docs/screenshots/terrain.png" alt="Rolling grass hills" width="400"> | <img src="docs/screenshots/stone-house.png" alt="Stone block house" width="400"> |
+
+## Demo
+
+<p align="center">
+  <video src="docs/demo/gameplay.mov" controls width="720">
+    Your browser does not support embedded video. <a href="docs/demo/gameplay.mov">Download gameplay.mov</a>.
+  </video>
+</p>
+
+Movement, block placement/destruction, and the day/night lighting cycle.
+
 ## Core Features
 
 - **Chunk world**
@@ -68,6 +88,9 @@ A voxel sandbox prototype built with **C++17** and **OpenGL 3.3 Core**. The proj
 ├── engine/             # Camera, Shader helpers
 ├── external/           # glad, glm, stb
 ├── shaders/            # GLSL (voxel_lit.vs/fs)
+├── docs/               # README screenshots and demo video
+│   ├── screenshots/
+│   └── demo/
 └── resources/          # minecraft_atlas.png (+ optional standalone textures)
 ```
 
